@@ -193,7 +193,7 @@ func (r *ActionRunner) applyAfterSuccess(ctx context.Context, uuid, after string
 		_ = r.store.Trash(ctx, uuid)
 	case "tag":
 		for _, t := range tags {
-			_ = r.store.AddTags(ctx, uuid, []string{t})
+			_, _ = r.store.AddTags(ctx, uuid, []string{t})
 		}
 	}
 }
