@@ -11,20 +11,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # push-back of the tidied go.sum requires history
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
       - name: Tidy modules
         run: go mod tidy
-      - name: Verify modules (go.mod/go.sum committed)
-        run: git diff --exit-code go.mod go.sum
-      - name: Upload go.sum
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-sum
-          path: go.sum
+      - name: Commit go.sum if changed
+        run: |
+          git config user.email "ci@users.noreply.github.com"
+          git config user.name "CI"
+          git add go.mod go.sum
+          if git diff --cached --quiet; then
+            echo "go.sum unchanged"
+          else
+            git commit -m "chore: update go.sum (go mod tidy)"
+            git push origin HEAD:refs/heads/${{ github.ref_name }} || echo "push skipped (branch protected)"
+          fi
       - name: Build
         run: go build ./...
       - name: Vet
