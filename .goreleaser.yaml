@@ -8,6 +8,7 @@ before:
     - go mod tidy
 
 builds:
+  # macOS CLI bridge (talks to Drafts.app via AppleScript).
   - id: "drafts"
     dir: "./cmd/drafts"
     binary: "drafts"
@@ -19,11 +20,29 @@ builds:
       - "amd64"
       - "arm64"
 
+  # Native Drafto client (Linux/Go hosts) — programs against core.Store.
+  - id: "drafto"
+    dir: "./cmd/drafto"
+    binary: "drafto"
+    ldflags:
+      - "-s -w -X main.version={{.Version}}"
+    goos:
+      - "linux"
+    goarch:
+      - "amd64"
+      - "arm64"
+
 archives:
   - id: drafts
     name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - drafts
+    files:
+      - none*
+  - id: drafto
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - drafto
     files:
       - none*
 

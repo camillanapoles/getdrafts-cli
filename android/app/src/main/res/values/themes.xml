@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme for the Compose app. Compose Material3 drives the rest. -->
+    <style name="Theme.Drafto" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/drafto_bg</item>
+        <item name="android:navigationBarColor">@color/drafto_bg</item>
+        <item name="android:windowBackground">@color/drafto_bg</item>
+    </style>
+</resources>

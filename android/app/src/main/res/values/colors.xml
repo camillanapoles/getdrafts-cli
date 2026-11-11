@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#1B1B1F</color>
+    <color name="drafto_bg">#121214</color>
+    <color name="drafto_surface">#1E1E22</color>
+    <color name="drafto_surface_variant">#2A2A30</color>
+    <color name="drafto_primary">#EDEDED</color>
+    <color name="drafto_on_primary">#121214</color>
+    <color name="drafto_accent">#7C9EFF</color>
+    <color name="drafto_flag">#FFB86B</color>
+    <color name="drafto_error">#FF8A8A</color>
+</resources>

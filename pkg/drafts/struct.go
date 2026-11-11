@@ -1,60 +1,35 @@
 package drafts
 
-const Separator = '|'
+import "github.com/nerveband/drafts-applescript-cli/core"
 
-type Draft struct {
-	UUID              string   `json:"uuid"`
-	Content           string   `json:"content"`
-	Title             string   `json:"title"`
-	Tags              []string `json:"tags"`
-	IsFlagged         bool     `json:"isFlagged"`
-	IsArchived        bool     `json:"isArchived"`
-	IsTrashed         bool     `json:"isTrashed"`
-	Folder            string   `json:"folder"`
-	CreatedAt         string   `json:"createdAt"`
-	ModifiedAt        string   `json:"modifiedAt"`
-	CreatedLatitude   float64  `json:"createdLatitude"`
-	CreatedLongitude  float64  `json:"createdLongitude"`
-	ModifiedLatitude  float64  `json:"modifiedLatitude"`
-	ModifiedLongitude float64  `json:"modifiedLongitude"`
-	Permalink         string   `json:"permalink"`
-}
+// Canonical domain types live in core (the shared Drafto engine consumed by
+// Android, Linux and the macOS bridge). pkg/drafts is the macOS AppleScript
+// bridge; these aliases keep it a thin façade and guarantee the CLI and the
+// native clients never disagree about the shape of a draft.
 
-// ---- Enums ------------------------------------------------------------------
+const Separator = core.Separator
 
-type Folder int
-
-const (
-	FolderInbox Folder = iota
-	FolderArchive
+type (
+	Draft  = core.Draft
+	Folder = core.Folder
+	Filter = core.Filter
+	Sort   = core.Sort
 )
 
-func (f Folder) String() string {
-	return [...]string{"inbox", "archive"}[f]
-}
-
-type Filter int
-
 const (
-	FilterInbox Filter = iota
-	FilterFlagged
-	FilterArchive
-	FilterTrash
-	FilterAll
+	FolderInbox   = core.FolderInbox
+	FolderArchive = core.FolderArchive
+
+	FilterInbox   = core.FilterInbox
+	FilterFlagged = core.FilterFlagged
+	FilterArchive = core.FilterArchive
+	FilterTrash   = core.FilterTrash
+	FilterAll     = core.FilterAll
+
+	SortCreated  = core.SortCreated
+	SortModified = core.SortModified
+	SortAccessed = core.SortAccessed
 )
 
-func (f Filter) String() string {
-	return [...]string{"inbox", "flagged", "archive", "trash", "all"}[f]
-}
-
-type Sort int
-
-const (
-	SortCreated Sort = iota
-	SortModified
-	SortAccessed
-)
-
-func (s Sort) String() string {
-	return [...]string{"created", "modified", "accessed"}[s]
-}
+// tagSeparator joins multiple tags in AppleScript output.
+const tagSeparator = "|||"
