@@ -17,8 +17,12 @@ jobs:
           cache: true
       - name: Tidy modules
         run: go mod tidy
-      - name: Show go.sum (debug)
-        run: cat go.sum
+      - name: Upload go.sum
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-sum
+          path: go.sum
       - name: Verify modules (go.mod/go.sum committed)
         run: git diff --exit-code go.mod go.sum
       - name: Build
