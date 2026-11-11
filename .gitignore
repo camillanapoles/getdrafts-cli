@@ -26,3 +26,7 @@ android/app/libs/*.jar
 *.iml
 .vscode/
 .DS_Store
+
+# GitNexus codemap artifacts (regenerable)
+.gitnexus/
+.claude/
