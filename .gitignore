@@ -1,2 +1,36 @@
+# Build output
 dist/
 /drafts
+/drafto
+*.test
+*.out
+
+# Go
+vendor/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.cxx/
+android/app/libs/*.aar
+android/app/libs/*.jar
+*.apk
+*.aab
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# GitNexus codemap artifacts (regenerable)
+.gitnexus/
+.claude/
+
+# GitNexus agent instruction files (regenerable, identical pair)
+AGENTS.md
+CLAUDE.md
