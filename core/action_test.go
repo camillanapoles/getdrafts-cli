@@ -124,7 +124,6 @@ func TestActionRunnerClipboardTemplateTag(t *testing.T) {
 
 func TestActionRunnerRegisterAll(t *testing.T) {
 	s := NewMemoryStore()
-	ctx := context.Background()
 	runner := NewActionRunner(s)
 
 	runner.RegisterAll([]Action{
