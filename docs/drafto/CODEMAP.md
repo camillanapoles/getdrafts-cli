@@ -33,6 +33,7 @@ Grafo de conhecimento local, *privacy-local*. Capacidades usadas nesta sessão:
 ### 1.3 rea (Reverse Engineer Anything)
 `rea doctor` = **healthy: false** — Hopper/Ghidra/IDA ausentes (`missing_analysis_engine`). Esperado: essas ferramentas são para **binários**. O Drafto está sendo escrito em **fonte** (Go/Kotlin). O `rea` se aplica à parte que ainda não está no repo:
 - **Get Drafts iOS original** — binário iOS: decompilação, análise de *plist*/mach-o, captura de *calls* nativos (`rea capture_native_ui_scenario`, `rea decompile`, `rea decode-android-resources` para APKs pareados, `rea build-reconstruction-obligation-ledger` para o *ledger* de obrigações de paridade).
+  **Atualização (2026-11-11):** para exatamente isso existe a trilha `rev-ios/`, que traz um meio executável sem esperar Ghidra/Hopper — skill `ios-app-security-audit` vendored/pinned em `skills/ios-app-security-audit/`, skill de procedimento `skills/getdrafts-ios-rev/`, harness `tools/rev-ios/`, spec `docs/rev-ios/00-SPEC.md`. O *ledger* de obrigações que o `rea build-reconstruction-obligation-ledger` deveria gerar vive em `docs/rev-ios/LEDGER.md`; a evidência iOS entra neste arquivo como §11 (entregável D6), pelo protocolo `docs/rev-ios/03-CODEMAP-BRIDGE.md`.
 - **Runtime**: `rea capture-browser/electron/native-ui` para observar o app em ação.
 - `rea function <symbol>` — analisa uma função com evidência.
 - O `rea` é o braço de **expertise/quality**: conclusões com evidência + limitações explícitas (*evidence-backed*).
@@ -170,10 +171,11 @@ Essa herança é o **referência de lógica** que o Drafto replica em `core/` (G
 3. **Verificar impacto**: `gitnexus impact <target>` / `gitnexus context <symbol>`.
 4. **Reverter a um cluster**: `gitnexus cypher "MATCH (c:Community) WHERE c.label='...' RETURN c"`.
 5. **Skills gerados**: `.claude/skills/gitnexus-area-*/SKILL.md` — guia por área funcional.
+6. **Evidência do app original (iOS)**: trilha `rev-ios/` → `docs/rev-ios/LEDGER.md` (obrigações) e `docs/rev-ios/findings/*` (cartões E1–E4). Uma linha deste arquivo não muda sem cartão aceito; uma linha de `core/`/`android/` não muda sem linha de ledger em `evidence`/`adapt`. Protocolo: `docs/rev-ios/03-CODEMAP-BRIDGE.md`.
 
 ## 10. Limitações registradas
 
 - **FTS desativado** — `gitnexus query` por texto retorna vazio; não significa ausência de fluxo. Reparar com `analyze --repair-fts` (precisa rede).
-- **`rea` para binários** — Hopper/Ghidra/IDA ausentes; a análise do Get Drafts iOS original (binário) depende de instalação futura.
+- **`rea` para binários** — Hopper/Ghidra/IDA ausentes. **Refinamento (2026-11-11, [F-0001](../rev-ios/findings/0001-harness-e-toolchain.md)):** a dependência de "instalação futura" só vale para (a) binário iOS **decifrado** e (b) **runtime** (Frida/simulador/SimForge). Superfície (`Info.plist`, URL schemes, extensões, frameworks), formato (JSON de backup/export) e *schema* SQLite já são analisáveis em Linux sem instalar nada — o harness faz isso hoje. A **captura** do app continua dependendo de Tier B/C.
 - **Go toolchain indisponível** na *sandbox* — nada foi compilado; `core/*` e `cmd/drafto` são fonte não verificada (conhecido risco, documentado em PR #1).
 - **Skills regeneráveis** — `.claude/` ignorado (não commitado); o codemap curado (este arquivo) é a fonte de verdade.

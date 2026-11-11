@@ -39,7 +39,22 @@ cd android && ./gradlew assembleDebug
 - **ADR-002 — Store interface:** backends plugáveis (AppleScript/SQLite/Memory). Aprovado.
 - **ADR-003 — Template tags próprios:** reimplementar, não copiar JS proprietário. Aprovado.
 - **ADR-004 — Module path:** manter original por continuidade; rename no 1º release oficial.
+- **ADR-006 — Trilha de análise `rev-ios/` + skill vendored (2026-11-11):** aprovado. A engenharia
+  reversa do Get Drafts iOS vive em `rev-ios/<slug>` com spec própria em `docs/rev-ios/00-SPEC.md`, skill
+  `ios-app-security-audit` (DragonJAR, Apache-2.0) **vendored e pinned** em `skills/ios-app-security-audit/`,
+  skill de procedimento local em `skills/getdrafts-ios-rev/` e harness em `tools/rev-ios/`. Padrão de
+  trabalho: *run* com cadeia de custódia → cartão de evidência (E1–E4) → linha no `LEDGER.md` → doc de
+  produto → **só então** código. Binários/recursos/dados nunca entram no repo. Tags planas `rev-ios-*`.
 - **ADR-005 — Estrutura paralela `reverse/` (canônica, perpétua):** aprovado. A trilha canônica do Drafto é o namespace `reverse/`. `reverse/main` é a linha de staging/production (o "origin" do projeto). Todo PR vai de `arena/<id>` → `reverse/<id>`; todo merge para produção vai → `reverse/main`. Tags `v*`/`drafto-v*` são criadas **somente em `reverse/main`** e são o gatilho de automação canônico. A trilha `reverse/` é independente de `main` histórico (não mistura). Esta regra é **perpétua** — novos branches/PRs seguem o fluxo `reverse/`.
+
+## 4.1 Trilha de evidência (rev-ios)
+
+- Spec/plano/mapas/ledger: [`docs/rev-ios/`](../rev-ios/README.md) · harness: [`tools/rev-ios/`](../../tools/rev-ios/README.md)
+- Estado: **C0 fechada** (ferramenta validada em Linux com *fixture*; nada do app-alvo capturado ainda).
+- Se você tem um Mac: comece por `CAP-003` (backup sintético → `triage --kind user-backup`) e `S2`
+  (`DraftStore.sqlite`) — são os dois caminhos que **respondem o modelo de dados sem jailbreak**.
+- Nunca: editar `skills/ios-app-security-audit/**` (o pin quebra), commitar artefato, usar
+  bypass/repackaging do skill (fora de escopo).
 
 ## 5. Riscos atuais
 

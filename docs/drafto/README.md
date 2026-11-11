@@ -13,6 +13,13 @@ App Android + Linux, idêntico em escopo ao Get Drafts (iOS/macOS). Baseado no r
 | [04-GOVERNANCE](04-GOVERNANCE.md) | Branches, semver, releases, CI, handoff. |
 | [05-ROADMAP](05-ROADMAP.md) | Fases, schema SQLite, acceptance criteria. |
 | [06-HANDOFF](06-HANDOFF.md) | Estado atual e como continuar. |
+| [CODEMAP](CODEMAP.md) | Mapa de símbolos/fluxos do repo (GitNexus) — fonte de verdade estrutural. |
+
+## Trilha de análise (separada por design)
+
+| Trilha | Doc | Para quê |
+|--------|-----|----------|
+| `rev-ios/*` | [`docs/rev-ios/`](../rev-ios/README.md) | **captura & extração do Get Drafts iOS** (modelo de dados, superfície, runtime, layout) → alimenta `CODEMAP.md` e o *ledger* de paridade. Tem skill vendored (`ios-app-security-audit`) e harness próprio (`tools/rev-ios/`). |
 
 ## Resumo da arquitetura
 

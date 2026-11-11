@@ -10,6 +10,9 @@
 - **Branch original:** `main` — base histórica, não recebe trabalho novo direto; a trilha canônica é `reverse/main`.
 - **Branches de feature (histórico/opcional):** `feat/<scope>-<slug>`, `fix/<scope>-<slug>`, `chore/<scope>-<slug>`.
 - **Branches de release:** `release/<semver>`.
+- **Trilha de análise (paralela, isolada):** `rev-ios/<slug>` — ver **§1.4**. É o namespace da engenharia
+  reversa do app iOS original (captura/extração/layout). **Não** é trilha de produto: não desenvolve o Drafto.
+  Nasce de `reverse/main` (ou do branch de sessão que carrega a spec), é destruída após integrar os docs.
 
 ### 1.1 Fluxo canônico `reverse/` (perpétuo)
 
@@ -44,6 +47,34 @@ main ──────────────●──────────
 6. **Tags `v*` só em `reverse/main`** após release aprovado (ver seção 3/4).
 7. **Versionamento por tag para automação:** cada merge em `reverse/main` deve gerar/propor uma tag (`vX.Y.Z` ou `drafto-vX.Y.Z`) que dispara CI/CD (build, test, goreleaser, release). Tags são o mecanismo de automação canônico.
 8. **Não misturar:** a trilha `reverse/` é independente da `main` histórica. `main` não recebe merges da trilha `reverse/` (e vice-versa), exceto por rebase/cherry-pick explícito para alinhamento.
+
+### 1.4 Trilha `rev-ios/` (análise — isolada da trilha de produto)
+
+Regra criada em 2026-11-11 com a spec [`docs/rev-ios/00-SPEC.md`](../rev-ios/00-SPEC.md). Objetivo: a
+extração do app iOS (skill vendored, *runs* de captura, *ledger* de evidência) não pode contaminar a linha
+de produto, e o produto não pode depender de binários/recursos proprietários no repositório.
+
+| Item | Regra |
+|---|---|
+| Branch | `rev-ios/<slug>` (ex.: `rev-ios/getdrafts-capture`); slug `kebab-case` ASCII ≤ 40 chars |
+| Worktree | `../getdrafts-cli-rev-ios` — `git worktree add ../getdrafts-cli-rev-ios -b rev-ios/<slug>` |
+| Commits | escopo `rev-ios` (ex.: `docs(rev-ios): …`, `feat(tools/rev-ios): …`) — filtrável por `git log --grep '(rev-ios)'` |
+| Tags | **planas**: `rev-ios-<slug>-<yyyymmdd>`. **Nunca** criar a tag `rev-ios` e também `rev-ios/x`: `refs/tags/` não permite file-vs-directory (verificado). Tags `v*`/`drafto-v*` continuam só em `reverse/main` |
+| Conteúdo permitido | `docs/rev-ios/**`, `skills/**`, `tools/rev-ios/**` e as seções de destino em `docs/drafto/*` |
+| Proibido | `.ipa`, `Payload/`, `.app`, `.sqlite`, `.car`, screenshots do alvo, dumps, strings/transcrição do binário (ver §7 do SPEC; `.gitignore` já cobre) |
+| Código do Drafto | **não** muda aqui. Muda em `reverse/<slug>` com o PR referenciando o cartão de evidência (`docs/rev-ios/findings/NNNN-*.md`) |
+| Integração | `rev-ios/<slug>` → PR → `reverse/main` (docs) → os itens de ledger viram PRs de produto |
+| Fim de vida | branch removido após o merge dos docs; *tags* `rev-ios-*` permanecem como checkpoint de análise |
+
+```
+rev-ios/getdrafts-capture ●──●──●  (C0..C5: runs, findings, ledger)
+        │  PR (só docs/tools/skills)
+        ▼
+reverse/main ─────────────●  (CODEMAP §11 + paridade + roadmap)
+        │  abre PRs de produto por obrigação resolvida
+        ▼
+reverse/drafto-<feature> ●  (core/, android/, cmd/)
+```
 
 ### 1.3 Fluxo original (mantido para contexto)
 

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "VULN-001",
+    "title": "App Transport Security Bypass - Arbitrary Loads Enabled",
+    "severity": "Critical",
+    "confidence": "Confirmed",
+    "owasp_category": "M5 - Insecure Communication",
+    "cwe_id": "CWE-319",
+    "cvss_4_0_score": "9.1 (AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N)",
+    "description": "The application has NSAllowsArbitraryLoads=true in its Info.plist App Transport Security configuration, which disables TLS certificate validation for ALL network connections. This allows an attacker on the network to perform man-in-the-middle attacks and intercept all HTTPS traffic in plaintext.",
+    "proof_of_concept": "plutil -p Payload/ExampleApp.app/Info.plist | grep -A5 NSAppTransportSecurity\n\n# Output shows:\n# NSAllowsArbitraryLoads = true\n\n# To exploit, set up a proxy (Burp Suite, mitmproxy) and intercept all traffic",
+    "remediation": "Remove NSAllowsArbitraryLoads=true from Info.plist. Instead, use NSExceptionDomains for specific servers that require HTTP or invalid certificates:\n\n```swift\n// Info.plist\n<key>NSAppTransportSecurity</key>\n<dict>\n    <key>NSExceptionDomains</key>\n    <dict>\n        <key>legacy-server.example.com</key>\n        <dict>\n            <key>NSExceptionAllowsInsecureHTTPLoads</key>\n            <true/>\n        </dict>\n    </dict>\n</dict>\n```"
+  },
+  {
+    "id": "VULN-002",
+    "title": "Keychain Credentials Stored Without Data Protection",
+    "severity": "High",
+    "confidence": "Confirmed",
+    "owasp_category": "M9 - Insecure Data Storage",
+    "cwe_id": "CWE-312",
+    "cvss_4_0_score": "7.5 (AV:P/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:H/SI:H/SA:N)",
+    "description": "The application stores sensitive credentials (user session tokens) in the Keychain with kSecAttrAccessibleAlways, which allows access even when the device is locked. This makes credentials accessible to malware or forensic tools.",
+    "proof_of_concept": "frida -U -f com.example.app -l keychain-dumper.js --no-pause\n\n# Output shows:\n# [+] kSecClassGenericPassword\n#     kSecAttrAccount: user@example.com\n#     kSecAttrService: com.example.app.session\n#     kSecAttrAccessible: kSecAttrAccessibleAlways\n#     Data: eyJ0b2tlbiI6ImFiYzEyMzQ1Njc4OSJ9",
+    "remediation": "Use kSecAttrAccessibleWhenUnlocked or kSecAttrAccessibleWhenUnlockedThisDeviceOnly for sensitive data:\n\n```swift\nlet query: [String: Any] = [\n    kSecClass as String: kSecClassGenericPassword,\n    kSecAttrAccount as String: account,\n    kSecAttrService as String: service,\n    kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,\n    kSecValueData as String: tokenData\n]\nlet status = SecItemAdd(query as CFDictionary, nil)\n```"
+  },
+  {
+    "id": "VULN-003",
+    "title": "URL Scheme Hijacking - Generic Scheme",
+    "severity": "Medium",
+    "confidence": "Likely",
+    "owasp_category": "M8 - Security Misconfiguration",
+    "cwe_id": "CWE-284",
+    "cvss_4_0_score": "5.4 (AV:L/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N)",
+    "description": "The application registers a generic URL scheme 'myapp://' without host-based validation. Any malicious app can register the same scheme and intercept sensitive data passed via URLs, such as authentication tokens or deep link parameters.",
+    "proof_of_concept": "plutil -p Payload/ExampleApp.app/Info.plist | grep -A10 CFBundleURLSchemes\n\n# Create a malicious app with the same scheme:\n# 1. Register 'myapp://' in malicious app's Info.plist\n# 2. Wait for user to tap a 'myapp://reset-password?token=SECRET' link\n# 3. iOS prompts user to choose between apps\n# 4. User may select malicious app, leaking the token\n\n# Frida monitoring:\nfrida -U -f com.example.app -l url-scheme-monitor.js --no-pause",
+    "remediation": "Use Universal Links instead of custom URL schemes for sensitive operations. If URL schemes are required, implement host-based validation:\n\n```swift\nfunc application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {\n    guard let host = url.host, host == \"trusted-host.com\" else {\n        print(\"Invalid URL scheme host: \\(url.host ?? \"nil\")\")\n        return false\n    }\n    // Process validated URL\n    return handleValidURL(url)\n}\n```"
+  },
+  {
+    "id": "VULN-004",
+    "title": "Debug Entitlement Enabled in Production Build",
+    "severity": "Low",
+    "confidence": "Confirmed",
+    "owasp_category": "M7 - Insufficient Binary Protections",
+    "cwe_id": "CWE-489",
+    "cvss_4_0_score": "3.5 (AV:P/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:L/SI:N/SA:N)",
+    "description": "The application contains get-task-allow=true entitlement in its embedded.mobileprovision, which allows debugger attachment to the running process. This simplifies reverse engineering, dynamic analysis, and runtime manipulation.",
+    "proof_of_concept": "codesign -d --entitlements - Payload/ExampleApp.app/ExampleApp\n\n# Output shows:\n# <key>get-task-allow</key>\n# <true/>\n\n# Attach debugger directly:\ndebugserver *:1234 -backboard\nlldb -n ExampleApp",
+    "remediation": "Remove get-task-allow entitlement from release builds. Use Xcode Archive or configure build settings:\n\n```bash\n# In Xcode build settings:\nDebug Information Format = DWARF with dSYM\nStrip Debug Symbols During Copy = Yes\n\n# For manual builds:\ncodesign --force --sign \"iPhone Distribution\" --entitlements release.entitlements ExampleApp.app\n```\n\nRelease entitlements should NOT include:\n```xml\n<key>get-task-allow</key>\n<false/>\n```"
+  },
+  {
+    "id": "VULN-005",
+    "title": "Sensitive Data in NSUserDefaults",
+    "severity": "Informational",
+    "confidence": "Likely",
+    "owasp_category": "M9 - Insecure Data Storage",
+    "cwe_id": "CWE-312",
+    "cvss_4_0_score": "0.0 (Informational)",
+    "description": "The application stores session tokens and user preferences in NSUserDefaults without encryption. NSUserDefaults is stored as a plist file in the app's Library/Preferences/ directory and is accessible to anyone with physical device access.",
+    "proof_of_concept": "frida -U -f com.example.app -l nsuserdefaults-dumper.js --no-pause\n\n# Output shows:\n# [+] NSUserDefaults.standardUserDefaults\n#     session_token: eyJ1c2VyX2lkIjoxMjM0NX0K\n#     last_login: 2024-12-15T10:30:00Z\n#     user_preferences: {\"notifications\": true}\n\n# Manual extraction:\n# Device: /var/mobile/Containers/Data/Application/{GUID}/Library/Preferences/com.example.app.plist",
+    "remediation": "Use Keychain for sensitive data (tokens, credentials) instead of NSUserDefaults. For non-sensitive preferences, NSUserDefaults is acceptable:\n\n```swift\n// WRONG - storing sensitive data in UserDefaults\nUserDefaults.standard.set(authToken, forKey: \"session_token\")\n\n// CORRECT - use Keychain for sensitive data\nlet tokenData = authToken.data(using: .utf8)!\nlet query: [String: Any] = [\n    kSecClass as String: kSecClassGenericPassword,\n    kSecAttrAccount as String: \"session_token\",\n    kSecAttrService as String: Bundle.main.bundleIdentifier!,\n    kSecValueData as String: tokenData,\n    kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked\n]\nSecItemAdd(query as CFDictionary, nil)\n```"
+  }
+]

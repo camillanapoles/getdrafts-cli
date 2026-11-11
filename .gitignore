@@ -27,6 +27,23 @@ android/app/libs/*.jar
 .vscode/
 .DS_Store
 
+# rev-ios: material de captura (binário/dado de usuário) — NUNCA versionar.
+# Raiz padrão de artefatos é ~/.rev-ios/artifacts; as linhas abaixo são rede de segurança.
+artifacts/
+.rev-ios/
+*.ipa
+Payload/
+*.app/
+*.appex/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.car
+*.mobileprovision
+*.actionset
+*.dSYM/
+
 # GitNexus codemap artifacts (regenerable)
 .gitnexus/
 .claude/

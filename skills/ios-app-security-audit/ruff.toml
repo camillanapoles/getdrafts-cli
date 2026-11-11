@@ -1,0 +1,20 @@
+# Lint configuration for the skill's Python scripts.
+#
+# The rule set is declared here on purpose. Ruff changed its DEFAULT rule set
+# between 0.15 (59 rules) and 0.17 (407 rules), so a CI that just ran
+# `pip install ruff` silently changed what it checked on every release: the
+# same untouched code started failing 203 times.
+#
+# E4/E7/E9 + F is the classic pyflakes-plus-pycodestyle set: syntax errors,
+# undefined names, unused imports and variables. It is what this repository
+# has been held to and what the CI gate verifies.
+#
+# The version is pinned in .github/workflows/ci.yml, so both the rule set and
+# the implementation that evaluates it are deterministic.
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

@@ -1,0 +1,14 @@
+# Python dependencies of the scripts in scripts/.
+#
+# Pinned on purpose, for the same reason the CI pins its tools: the exact
+# versions the skill is verified against are the ones declared in
+# references/tool-versions.md.
+#
+#   pip3 install -r requirements.txt
+#
+# lief is only needed by the SimForge Mach-O scripts; requests is only needed
+# by the MobSF integration. The rest of the skill runs on the standard library
+# alone.
+
+requests==2.32.5
+lief==0.17.6
