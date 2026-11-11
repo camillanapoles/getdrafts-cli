@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background -->
+    <path
+        android:fillColor="#1B1B1F"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- A simple "D" glyph representing Drafto -->
+    <path
+        android:fillColor="#7C9EFF"
+        android:pathData="M30,30 h28 a16,16 0 0 1 0,32 h-28 z M30,38 h22 a8,8 0 0 1 0,16 h-22 z" />
+    <!-- Title line, echoing the quick-capture metaphor -->
+    <path
+        android:fillColor="#EDEDED"
+        android:pathData="M30,78 h48 v4 h-48 z" />
+</vector>

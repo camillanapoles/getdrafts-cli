@@ -1,21 +1,12 @@
 package drafts
 
-type CreateOptions struct {
-	Tags    []string
-	Folder  Folder
-	Flagged bool
-	Action  string
-}
+import "github.com/nerveband/drafts-applescript-cli/core"
 
-type QueryOptions struct {
-	Tags             []string
-	OmitTags         []string
-	Sort             Sort
-	SortDescending   bool
-	SortFlaggedToTop bool
-}
+// Options mirror the core engine so the AppleScript bridge and the native
+// clients share identical request shapes.
 
-type ModifyOptions struct {
-	Tags   []string
-	Action string
-}
+type (
+	CreateOptions  = core.CreateOptions
+	ModifyOptions  = core.ModifyOptions
+	QueryOptions   = core.QueryOptions
+)

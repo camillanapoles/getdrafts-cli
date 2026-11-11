@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Drafto</string>
+    <string name="draft_list_title">Inbox</string>
+    <string name="new_draft">New draft</string>
+    <string name="empty_inbox">Nothing here. Capture your first thought.</string>
+</resources>
