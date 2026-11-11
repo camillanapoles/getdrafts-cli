@@ -23,8 +23,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Download dependencies
-        run: go mod download
+      - name: Tidy modules
+        run: go mod tidy
       - name: Build
         run: go build ./...
       - name: Vet
