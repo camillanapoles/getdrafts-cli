@@ -2,12 +2,25 @@ package drafts
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/nerveband/drafts-applescript-cli/internal/assert"
 )
+
+// TestMain skips the AppleScript bridge tests on non-macOS hosts: the bridge
+// shells out to `osascript`, which only exists on macOS. The core engine tests
+// (package core) run everywhere and cover the platform-agnostic logic.
+func TestMain(m *testing.M) {
+	if runtime.GOOS != "darwin" {
+		fmt.Println("skipping pkg/drafts AppleScript bridge tests (require macOS)")
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func TestCreateDefault(t *testing.T) {
 	text := rand()
