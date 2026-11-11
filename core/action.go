@@ -47,6 +47,14 @@ type Clipboard interface {
 	Set(text string) error
 }
 
+// ClipboardReader is an optional clipboard source for the [[clipboard]]
+// template tag. A client clipboard may implement both Clipboard (write) and
+// ClipboardReader (read); ActionRunner detects the capability dynamically,
+// so adding the reader never breaks existing integrations.
+type ClipboardReader interface {
+	Text() string
+}
+
 // Sharer is an optional sink for the share step (injected by the client).
 type Sharer interface {
 	Share(text string) error
@@ -76,6 +84,15 @@ func (r *ActionRunner) Register(a Action) {
 	cp := a
 	cp.Steps = append([]ActionStep{}, a.Steps...)
 	r.actions[a.Name] = &cp
+}
+
+// RegisterAll adds (or replaces) a batch of actions (parity: Drafts action
+// groups installed in one shot — e.g. a JSON payload arriving via URL
+// scheme; the URL parsing itself stays client-side).
+func (r *ActionRunner) RegisterAll(actions []Action) {
+	for _, a := range actions {
+		r.Register(a)
+	}
 }
 
 // List returns all registered actions.
@@ -178,7 +195,11 @@ func (r *ActionRunner) runSteps(ctx context.Context, a *Action, d Draft) (Draft,
 			out.IsArchived = false
 		case StepTemplate:
 			tmpl := configString(step.Config, "template")
-			out.Content = RenderTemplate(out.Content, out, tmpl)
+			env := map[string]string{"workspace": out.Workspace}
+			if reader, ok := r.clipboard.(ClipboardReader); ok {
+				env["clipboard"] = reader.Text()
+			}
+			out.Content = RenderTemplateEnv(out.Content, out, tmpl, env)
 			out.Title = titleOf(out.Content)
 		}
 	}

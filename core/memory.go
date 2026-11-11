@@ -7,6 +7,17 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	// timeLayout is the canonical timestamp layout used across the core
+	// ("2006-01-02 15:04:05"). It sorts correctly as a plain string.
+	timeLayout = "2006-01-02 15:04:05"
+
+	// defaultTrashRetention is the trash auto-delete window (parity: Drafts
+	// permanently removes drafts trashed more than 30 days ago).
+	defaultTrashRetention = 30 * 24 * time.Hour
 )
 
 // MemoryStore is an in-memory, thread-safe Store implementation. It is the
@@ -19,15 +30,38 @@ type MemoryStore struct {
 	workspaces     map[string]Workspace
 	order          []string // insertion order, for stable ties
 	activeWorkspace string
+
+	// trashRetention is the trash auto-delete window; 0 disables expiry.
+	trashRetention time.Duration
 }
 
-// NewMemoryStore returns an empty in-memory store.
+// NewMemoryStore returns an empty in-memory store. Trash retention defaults
+// to 30 days (Drafts parity); use SetTrashRetention to change or disable it.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		drafts:     make(map[string]*Draft),
-		tags:       make(map[string]struct{}),
-		workspaces: make(map[string]Workspace),
+		drafts:         make(map[string]*Draft),
+		tags:           make(map[string]struct{}),
+		workspaces:     make(map[string]Workspace),
+		trashRetention: defaultTrashRetention,
 	}
+}
+
+// SetTrashRetention sets the trash auto-delete window. A duration <= 0
+// disables automatic expiration (manual PurgeTrash still works).
+func (s *MemoryStore) SetTrashRetention(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	s.trashRetention = d
+}
+
+// TrashRetention returns the configured trash auto-delete window (0 = off).
+func (s *MemoryStore) TrashRetention() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.trashRetention
 }
 
 // Create adds a new draft and returns it.
@@ -65,22 +99,29 @@ func (s *MemoryStore) Create(ctx context.Context, content string, opts CreateOpt
 	return cloneDraft(d), nil
 }
 
-// Get returns a draft by UUID.
+// Get returns a draft by UUID. Accessing a draft refreshes its AccessedAt
+// (parity: Drafts "accessed" sort); the modification time is untouched.
 func (s *MemoryStore) Get(ctx context.Context, uuid string) (Draft, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	d, ok := s.drafts[uuid]
 	if !ok {
 		return Draft{}, fmt.Errorf("%w: %s", ErrDraftNotFound, uuid)
 	}
+	d.AccessedAt = nowStr()
 	return cloneDraft(d), nil
 }
 
-// Query returns drafts matching the query, sorted and limited.
+// Query returns drafts matching the query, sorted and limited. Trashed
+// drafts past the retention window are auto-purged (Drafts parity) before
+// the filters run.
 func (s *MemoryStore) Query(ctx context.Context, q Query) ([]Draft, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Write (not read) lock: lazy trash expiration may mutate the store.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.purgeExpiredTrashLocked()
 
 	// Resolve effective filter (a workspace overrides folder/search/tags).
 	filter := q.Filter
@@ -115,7 +156,7 @@ func (s *MemoryStore) Query(ctx context.Context, q Query) ([]Draft, error) {
 		if !passesFolder(*d, filter) {
 			continue
 		}
-		if search != "" && !containsFold(d.Content, search) {
+		if search != "" && !matchesSearch(*d, search) {
 			continue
 		}
 		if !hasAllTags(*d, incTags) || !hasNoTags(*d, omitTags) {
@@ -146,6 +187,15 @@ func (s *MemoryStore) Update(ctx context.Context, uuid string, mutate func(*Draf
 		return Draft{}, err
 	}
 	cp.ModifiedAt = nowStr()
+	// Trash lifecycle invariant: entering the trash stamps TrashedAt; any
+	// move out of the trash (archive, restore, action step) clears it.
+	if cp.Folder == "trash" {
+		if cp.TrashedAt == "" {
+			cp.TrashedAt = cp.ModifiedAt
+		}
+	} else {
+		cp.TrashedAt = ""
+	}
 	*d = cp
 	return cloneDraft(d), nil
 }
@@ -202,6 +252,17 @@ func (s *MemoryStore) EmptyTrash(ctx context.Context) error {
 	}
 	s.order = kept
 	return nil
+}
+
+// PurgeTrash permanently removes trashed drafts older than olderThan
+// (parity: Drafts trash expiry). olderThan <= 0 purges the entire trash.
+// It implements the TrashPruner capability. Returns the number of drafts
+// removed.
+func (s *MemoryStore) PurgeTrash(ctx context.Context, olderThan time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.purgeTrashOlderLocked(olderThan), nil
 }
 
 // Archive moves a draft to archive.
@@ -359,6 +420,46 @@ func (s *MemoryStore) reconcileTags(old, new []string) {
 	}
 }
 
+// purgeExpiredTrashLocked auto-purges trashed drafts past the retention
+// window. Drafts without TrashedAt (legacy records) never expire
+// automatically; EmptyTrash/PurgeTrash handle them explicitly.
+// Callers must hold the write lock.
+func (s *MemoryStore) purgeExpiredTrashLocked() {
+	if s.trashRetention <= 0 {
+		return
+	}
+	s.purgeTrashOlderLocked(s.trashRetention)
+}
+
+// purgeTrashOlderLocked removes trashed drafts older than olderThan
+// (olderThan <= 0 removes every trashed draft). Returns the number of
+// drafts removed. Callers must hold the write lock.
+func (s *MemoryStore) purgeTrashOlderLocked(olderThan time.Duration) int {
+	now := parseTS(nowStr())
+	removed := 0
+	kept := s.order[:0]
+	for _, uuid := range s.order {
+		expired := false
+		if d := s.drafts[uuid]; d != nil && d.Folder == "trash" {
+			if olderThan <= 0 {
+				expired = true
+			} else if d.TrashedAt != "" {
+				if t := parseTS(d.TrashedAt); !t.IsZero() && now.Sub(t) >= olderThan {
+					expired = true
+				}
+			}
+		}
+		if expired {
+			delete(s.drafts, uuid)
+			removed++
+			continue
+		}
+		kept = append(kept, uuid)
+	}
+	s.order = kept
+	return removed
+}
+
 func cloneDraft(d *Draft) Draft {
 	c := *d
 	c.Tags = append([]string{}, d.Tags...)
@@ -376,7 +477,7 @@ func newUUID() string {
 }
 
 func nowStr() string {
-	return timeNow().Format("2006-01-02 15:04:05")
+	return timeNow().Format(timeLayout)
 }
 
 func passesFolder(d Draft, f Filter) bool {
@@ -439,6 +540,31 @@ func contains(s []string, v string) bool {
 
 func containsFold(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// matchesSearch is the full-text matcher for Query.Search (parity: Drafts
+// search). It matches case-insensitively against the content, the display
+// title and the tags.
+func matchesSearch(d Draft, q string) bool {
+	if containsFold(d.Content, q) || containsFold(d.Title, q) {
+		return true
+	}
+	for _, t := range d.Tags {
+		if containsFold(t, q) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseTS parses a canonical core timestamp; returns the zero time when
+// malformed (expired checks then skip the draft conservatively).
+func parseTS(ts string) time.Time {
+	t, err := time.Parse(timeLayout, ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func unionTags(a, b []string) []string {

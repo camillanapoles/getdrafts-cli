@@ -29,6 +29,7 @@ const (
 	SortCreated  = core.SortCreated
 	SortModified = core.SortModified
 	SortAccessed = core.SortAccessed
+	SortName     = core.SortName
 )
 
 // tagSeparator joins multiple tags in AppleScript output.

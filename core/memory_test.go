@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -214,6 +215,145 @@ func TestMemoryCounts(t *testing.T) {
 	c, _ := s.Counts(ctx)
 	if c.Inbox != 3 || c.Flagged != 1 || c.Archive != 1 || c.Trash != 1 || c.All != 4 {
 		t.Fatalf("counts = %+v", c)
+	}
+}
+
+func TestMemorySearchMatchesTitleTagsAndContent(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	s.Create(ctx, "plain body", CreateOptions{Tags: []string{"project-x"}})
+	s.Create(ctx, "Reunião do time", CreateOptions{})
+	s.Create(ctx, "nothing here", CreateOptions{})
+
+	byTag, _ := s.Query(ctx, Query{Filter: FilterAll, Search: "project-x"})
+	if len(byTag) != 1 || byTag[0].Content != "plain body" {
+		t.Fatalf("tag search = %v", contents(byTag))
+	}
+
+	byTitle, _ := s.Query(ctx, Query{Filter: FilterAll, Search: "reunião"})
+	if len(byTitle) != 1 || byTitle[0].Title != "Reunião do time" {
+		t.Fatalf("title search = %v", contents(byTitle))
+	}
+
+	byContent, _ := s.Query(ctx, Query{Filter: FilterAll, Search: "BODY"})
+	if len(byContent) != 1 {
+		t.Fatalf("content search = %v", contents(byContent))
+	}
+}
+
+func TestMemorySortAccessedAndName(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	base := time.Unix(1700000000, 0)
+	counter := 0
+	orig := NowFunc
+	NowFunc = func() time.Time {
+		counter++
+		return base.Add(time.Duration(counter) * time.Minute)
+	}
+	defer func() { NowFunc = orig }()
+
+	s.Create(ctx, "zeta", CreateOptions{})
+	s.Create(ctx, "alpha", CreateOptions{})
+	s.Create(ctx, "mid", CreateOptions{})
+
+	nameAsc, _ := s.Query(ctx, Query{Filter: FilterAll, Sort: SortName})
+	if len(nameAsc) != 3 || nameAsc[0].Content != "alpha" || nameAsc[2].Content != "zeta" {
+		t.Fatalf("name asc = %v", contents(nameAsc))
+	}
+
+	// Opening a draft refreshes AccessedAt without touching ModifiedAt.
+	first, _ := s.Create(ctx, "opened first", CreateOptions{})
+	got, err := s.Get(ctx, first.UUID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.AccessedAt == "" {
+		t.Fatal("AccessedAt not refreshed on Get")
+	}
+
+	// The accessed draft surfaces first under SortAccessed descending.
+	acc, _ := s.Query(ctx, Query{Filter: FilterAll, Sort: SortAccessed, SortDescending: true})
+	if len(acc) != 4 || acc[0].Content != "opened first" {
+		t.Fatalf("accessed desc = %v", contents(acc))
+	}
+}
+
+func TestMemoryTrashAutoDelete(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	orig := NowFunc
+	defer func() { NowFunc = orig }()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	NowFunc = func() time.Time { return now }
+
+	old, _ := s.Create(ctx, "old trash", CreateOptions{})
+	recent, _ := s.Create(ctx, "recent trash", CreateOptions{})
+	keep, _ := s.Create(ctx, "keep me", CreateOptions{})
+
+	// Trash `old` 31 days ago and `recent` 29 days ago.
+	NowFunc = func() time.Time { return now.Add(-31 * 24 * time.Hour) }
+	if err := s.Trash(ctx, old.UUID); err != nil {
+		t.Fatalf("trash old: %v", err)
+	}
+	NowFunc = func() time.Time { return now.Add(-29 * 24 * time.Hour) }
+	if err := s.Trash(ctx, recent.UUID); err != nil {
+		t.Fatalf("trash recent: %v", err)
+	}
+	NowFunc = func() time.Time { return now }
+
+	// Default retention is 30 days: `old` expires, `recent` survives.
+	trashList, _ := s.Query(ctx, Query{Filter: FilterTrash})
+	if len(trashList) != 1 || trashList[0].UUID != recent.UUID {
+		t.Fatalf("trash after auto-purge = %v", contents(trashList))
+	}
+	if _, err := s.Get(ctx, old.UUID); !errors.Is(err, ErrDraftNotFound) {
+		t.Fatalf("expected old draft purged, got %v", err)
+	}
+	if got, _ := s.Get(ctx, keep.UUID); got.Content != "keep me" {
+		t.Fatalf("non-trashed draft affected: %+v", got)
+	}
+
+	// Disabling retention stops auto-purge entirely.
+	s.SetTrashRetention(0)
+	if s.TrashRetention() != 0 {
+		t.Fatal("retention not disabled")
+	}
+	fresh, _ := s.Create(ctx, "fresh trash", CreateOptions{})
+	if err := s.Trash(ctx, fresh.UUID); err != nil {
+		t.Fatalf("trash fresh: %v", err)
+	}
+	list, _ := s.Query(ctx, Query{Filter: FilterTrash})
+	if len(list) != 2 {
+		t.Fatalf("disabled retention purged trash: %v", contents(list))
+	}
+}
+
+func TestMemoryPurgeTrashManual(t *testing.T) {
+	s := NewMemoryStore()
+	s.SetTrashRetention(0) // disable auto-purge; purge manually
+	ctx := context.Background()
+
+	a, _ := s.Create(ctx, "a", CreateOptions{})
+	b, _ := s.Create(ctx, "b", CreateOptions{})
+	s.Create(ctx, "c", CreateOptions{})
+	if err := s.Trash(ctx, a.UUID); err != nil {
+		t.Fatalf("trash a: %v", err)
+	}
+	if err := s.Trash(ctx, b.UUID); err != nil {
+		t.Fatalf("trash b: %v", err)
+	}
+
+	n, err := s.PurgeTrash(ctx, 0) // 0 = entire trash
+	if err != nil || n != 2 {
+		t.Fatalf("purge = %d, %v", n, err)
+	}
+	c, _ := s.Counts(ctx)
+	if c.Trash != 0 || c.All != 1 {
+		t.Fatalf("counts after purge = %+v", c)
 	}
 }
 
