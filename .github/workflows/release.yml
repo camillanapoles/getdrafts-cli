@@ -1,0 +1,51 @@
+name: Release
+
+# Tags são o gatilho canônico de automação (docs/drafto/04-GOVERNANCE.md §1.2/§5).
+# Tags v* / drafto-v* são criadas SOMENTE em reverse/main e disparam esta release
+# (goreleaser: binários `drafts` macOS + `drafto` Linux, changelog por commit).
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "drafto-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Go gate (build, vet, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  release:
+    name: goreleaser (binaries + changelog)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

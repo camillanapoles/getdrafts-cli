@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	arg "github.com/alexflint/go-arg"
 
@@ -57,6 +58,8 @@ func main() {
 		err = store.Archive(ctx, args.Archive.UUID)
 	case args.Trash != nil:
 		err = store.Trash(ctx, args.Trash.UUID)
+	case args.Purge != nil:
+		data, err = runPurge(ctx, args.Purge)
 	case args.Tags != nil:
 		data, err = runTags(ctx)
 	case args.Counts != nil:
@@ -81,8 +84,10 @@ type CreateCmd struct {
 
 type ListCmd struct {
 	Filter string   `arg:"-f" default:"inbox" help:"inbox|flagged|archive|trash|all"`
-	Search string   `arg:"-s" help:"search draft content"`
+	Search string   `arg:"-s" help:"search draft content, title and tags"`
 	Tag    []string `arg:"-t,separate" help:"filter by tag"`
+	Sort   string   `arg:"--sort" default:"created" help:"created|modified|accessed|name"`
+	Desc   bool     `arg:"--desc" help:"sort descending"`
 	Limit  int      `arg:"--limit" default:"20" help:"max results (0 for all)"`
 }
 
@@ -114,6 +119,10 @@ type TagsCmd struct{}
 
 type CountsCmd struct{}
 
+type PurgeCmd struct {
+	Days int `arg:"--days" default:"30" help:"purge trashed drafts older than N days (0 = entire trash)"`
+}
+
 type SchemaCmd struct{}
 
 type Args struct {
@@ -125,6 +134,7 @@ type Args struct {
 	Unflag  *UnflagCmd  `arg:"subcommand:unflag" help:"unflag a draft"`
 	Archive *ArchCmd    `arg:"subcommand:archive" help:"archive a draft"`
 	Trash   *TrashCmd   `arg:"subcommand:trash" help:"trash a draft"`
+	Purge   *PurgeCmd   `arg:"subcommand:purge" help:"purge expired trashed drafts"`
 	Tags    *TagsCmd    `arg:"subcommand:tags" help:"list tags"`
 	Counts  *CountsCmd  `arg:"subcommand:counts" help:"show folder counts"`
 	Schema  *SchemaCmd  `arg:"subcommand:schema" help:"output command schema"`
@@ -149,16 +159,28 @@ func runList(ctx context.Context, c *ListCmd) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	sort, err := parseSort(c.Sort)
+	if err != nil {
+		return nil, err
+	}
 	ds, err := store.Query(ctx, core.Query{
-		Filter: filter,
-		Search: c.Search,
-		Tags:   c.Tag,
-		Limit:  c.Limit,
+		Filter:         filter,
+		Search:         c.Search,
+		Tags:           c.Tag,
+		Sort:           sort,
+		SortDescending: c.Desc,
+		Limit:          c.Limit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"drafts": ds, "count": len(ds), "filter": c.Filter}, nil
+	return map[string]interface{}{
+		"drafts": ds,
+		"count":  len(ds),
+		"filter": c.Filter,
+		"sort":   c.Sort,
+		"desc":   c.Desc,
+	}, nil
 }
 
 func runGet(ctx context.Context, c *GetCmd) (interface{}, error) {
@@ -189,6 +211,32 @@ func runTags(ctx context.Context) (interface{}, error) {
 	return map[string]interface{}{"tags": tags, "count": len(tags)}, nil
 }
 
+func runPurge(ctx context.Context, c *PurgeCmd) (interface{}, error) {
+	pruner, ok := store.(core.TrashPruner)
+	if !ok {
+		return nil, fmt.Errorf("current store does not support trash purge")
+	}
+	n, err := pruner.PurgeTrash(ctx, time.Duration(c.Days)*24*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"purged": n, "older_than_days": c.Days}, nil
+}
+
+func parseSort(s string) (core.Sort, error) {
+	switch s {
+	case "created":
+		return core.SortCreated, nil
+	case "modified":
+		return core.SortModified, nil
+	case "accessed":
+		return core.SortAccessed, nil
+	case "name":
+		return core.SortName, nil
+	}
+	return core.SortCreated, fmt.Errorf("invalid sort: %s", s)
+}
+
 func parseFilter(s string) (core.Filter, error) {
 	switch s {
 	case "inbox":
@@ -211,7 +259,7 @@ func schema() interface{} {
 		"engine":  "core.Store",
 		"commands": []string{
 			"create", "list", "get", "search",
-			"flag", "unflag", "archive", "trash",
+			"flag", "unflag", "archive", "trash", "purge",
 			"tags", "counts", "schema",
 		},
 	}

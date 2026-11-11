@@ -32,3 +32,24 @@ func TestRenderTemplateLeavesUnknownTags(t *testing.T) {
 		t.Fatalf("out = %q", out)
 	}
 }
+
+func TestRenderTemplateClipboardAndWorkspace(t *testing.T) {
+	d := Draft{UUID: "u", Title: "t", Content: "c", Workspace: "Personal"}
+	env := map[string]string{
+		"clipboard":   "from clipboard",
+		"workspace":   "Personal",
+		"draft_title": "SHOULD-NOT-OVERRIDE",
+	}
+
+	out := RenderTemplateEnv("c", d, "K:[[clipboard]] W:[[workspace]] T:[[draft_title]]", env)
+	want := "K:from clipboard W:Personal T:t"
+	if out != want {
+		t.Fatalf("out = %q, want %q", out, want)
+	}
+
+	// Without an env, the parity tags stay intact (unknown tags rule).
+	plain := RenderTemplate("c", d, "[[clipboard]] [[workspace]]")
+	if plain != "[[clipboard]] [[workspace]]" {
+		t.Fatalf("plain = %q", plain)
+	}
+}

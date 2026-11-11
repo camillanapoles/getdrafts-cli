@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
+	"time"
 )
 
 // Sentinel errors shared across backends.
@@ -57,6 +59,17 @@ type Store interface {
 	SetActiveWorkspace(ctx context.Context, name string) error
 }
 
+// TrashPruner is an optional capability implemented by stores that support
+// trash expiration (parity: Drafts auto-deletes trashed drafts after 30
+// days). Clients type-assert Store to TrashPruner; the absence of the
+// capability is not an error.
+type TrashPruner interface {
+	// PurgeTrash permanently removes trashed drafts older than olderThan.
+	// olderThan <= 0 purges the entire trash. Returns the number of drafts
+	// removed.
+	PurgeTrash(ctx context.Context, olderThan time.Duration) (int, error)
+}
+
 // applySorting orders drafts per a Query. It is a package helper so every
 // backend shares identical ordering semantics.
 func applySorting(ds []Draft, q Query) []Draft {
@@ -73,7 +86,9 @@ func applySorting(ds []Draft, q Query) []Draft {
 		case SortModified:
 			ka, kb = a.ModifiedAt, b.ModifiedAt
 		case SortAccessed:
-			ka, kb = a.ModifiedAt, b.ModifiedAt // accessed not stored; fallback
+			ka, kb = accessedKey(a), accessedKey(b)
+		case SortName:
+			ka, kb = strings.ToLower(a.Title), strings.ToLower(b.Title)
 		default: // SortCreated
 			ka, kb = a.CreatedAt, b.CreatedAt
 		}
@@ -100,6 +115,15 @@ func applySorting(ds []Draft, q Query) []Draft {
 	}
 
 	return ds
+}
+
+// accessedKey returns the sort key for SortAccessed: the last access time,
+// falling back to the modification time for drafts that were never opened.
+func accessedKey(d Draft) string {
+	if d.AccessedAt != "" {
+		return d.AccessedAt
+	}
+	return d.ModifiedAt
 }
 
 // sortStable is a tiny stable sort (insertion sort) to avoid importing

@@ -147,7 +147,7 @@ O repo original (`pkg/drafts/*`, `cmd/drafts/*`) implementa:
 - **Modelo de dados**: `Draft {uuid, title, body, folder, tags, flagged, created, modified}` + workspaces.
 - **Folders**: inbox/archive/trash/flagged/all (mapeados em `Draft.Folder`).
 - **Actions**: `Action {group, steps[], after_success}` com step types (`*template*`, `*tag*`, `*archive*`, `*trash*`, `*flag*`, `*clipboard*`, etc.) — lógica em `ActionRunner.runSteps`.
-- **Template tags**: `[[draft_content]]`, `[[draft_title]]`, `[[draft_uuid]]`, `[[date]]`, `[[date_created]]`, `[[date_modified]]` (em `core/template.go`). **P0**: falta `[[clipboard]]`.
+- **Template tags**: `[[draft_content]]`, `[[draft_title]]`, `[[draft_uuid]]`, `[[date]]`, `[[date_created]]`, `[[date_modified]]` + `[[clipboard]]`/`[[workspace]]` (em `core/template.go`, via `RenderTemplateEnv`).
 - **Workspaces**: resolução de nome → folder/tag (em `MemoryStore.resolveWorkspace`).
 - **Sort/filter**: `MemoryStore.Query` aceita `sort` + `folder`/`tag` filter.
 - **gomobile boundary**: `Core` expoe o store + actions para Android via JNI/AAR.
@@ -156,12 +156,14 @@ Essa herança é o **referência de lógica** que o Drafto replica em `core/` (G
 
 ## 8. O que falta para paridade (P0, do mapeamento)
 
-1. `[[clipboard]]` template tag (não implementado em `core/template.go`).
-2. **Search** (full-text) — Get Drafts tem; `core.Store.Query` só faz filter por folder/tag/sort.
-3. **Sort opções** completas (Get Drafts: created/modified/title asc/desc).
-4. **Action groups** instalados via URL (Get Drafts: *action install URLs* com JSON completo) — o `RegisterAction` do gomobile só recebe um `Action`.
-5. **Trash auto-delete** (30 dias) — Get Drafts faz; Drafto ainda não.
-6. **Geolocation/permalink/version history/tasks** — P1/P2 (ver `docs/drafto/02-FEATURE-PARITY.md`).
+> Status atualizado na trilha `arena/b30c3d85` (gap P0 fechado no core):
+
+1. ✅ **`[[clipboard]]`** — `core/template.go` ganhou `RenderTemplateEnv` (env de tags extras); `core/action.go` injeta `[[clipboard]]` via nova capability `ClipboardReader` (aditiva, não-quebrante) e `[[workspace]]`. Parity matrix §4: ✅.
+2. ✅ **Search full-text** — `Query.Search` casa (case-insensitive) sobre **conteúdo + título + tags** (`MemoryStore.matchesSearch`). FTS5 fica para o backend SQLite (Phase 1).
+3. ✅ **Sort completo** — created/modified + **accessed** (novo campo `Draft.AccessedAt`, refresh no `Store.Get`) + **name** (novo `SortName`, case-insensitive). CLI: `drafto list --sort --desc`.
+4. 🟠 **Action groups via URL** — core recebeu `ActionRunner.RegisterAll([]Action)` (instalação em lote); o parse do payload JSON/URL scheme permanece no cliente (P1).
+5. ✅ **Trash auto-delete (30 dias)** — novo campo `Draft.TrashedAt` (stamp/clear como invariante em `Store.Update`), retenção padrão de 30 dias (`defaultTrashRetention`), auto-purge lazy no `Query`, `PurgeTrash` manual (capability `TrashPruner`), CLI: `drafto purge --days`.
+6. ⚪ **Geolocation/permalink/version history/tasks** — P1/P2 (ver `docs/drafto/02-FEATURE-PARITY.md`).
 
 ## 9. Como usar este codemap
 
