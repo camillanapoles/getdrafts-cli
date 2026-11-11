@@ -6,6 +6,7 @@ require (
 	github.com/alexflint/go-arg v1.4.3
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/hashicorp/go-version v1.8.0
+	modernc.org/sqlite v1.62.0
 )
 
 require (
