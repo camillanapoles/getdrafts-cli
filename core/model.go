@@ -31,6 +31,13 @@ type Draft struct {
 	ModifiedLongitude float64  `json:"modifiedLongitude"`
 	Permalink         string   `json:"permalink"`
 
+	// Lifecycle timestamps (additive; omitted when empty). AccessedAt is
+	// refreshed on every Store.Get (parity: Drafts "accessed" sort).
+	// TrashedAt records when the draft entered the trash and drives the
+	// 30-day trash auto-delete (parity: Drafts trash expiry).
+	AccessedAt string `json:"accessedAt,omitempty"`
+	TrashedAt  string `json:"trashedAt,omitempty"`
+
 	// Drafto extensions (additive; omitted when empty).
 	Pinned    bool   `json:"pinned,omitempty"`
 	Syntax    string `json:"syntax,omitempty"`
@@ -72,10 +79,11 @@ const (
 	SortCreated Sort = iota
 	SortModified
 	SortAccessed
+	SortName
 )
 
 func (s Sort) String() string {
-	return [...]string{"created", "modified", "accessed"}[s]
+	return [...]string{"created", "modified", "accessed", "name"}[s]
 }
 
 // Permalink builds the Drafto deep link for a draft.

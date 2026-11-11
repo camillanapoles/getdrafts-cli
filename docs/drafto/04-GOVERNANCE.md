@@ -90,7 +90,7 @@ Exemplo: `feat(core): add memory store with query filters`.
   - `test`: `go test ./...`, `go vet ./...`, lint.
   - `build`: `go build ./...`, goreleaser snapshot.
   - `android`: gradle assembleDebug + gomobile bind (opcional, com cache).
-  - **`release` (on tag `v*`/`drafto-v*` em `reverse/main`):** goreleaser release + upload de binários/APK + changelog.
+  - **`release` (on tag `v*`/`drafto-v*` em `reverse/main`):** goreleaser release + upload de binários + changelog — **implementado em `.github/workflows/release.yml`** (gate de testes antes do release).
 - Regras de proteção: `reverse/main` (e `main`) requerem CI verde + review; lançamentos requerem tag.
 - **Automação por tag:** workflows de release são triggers por tag — a tag `vX.Y.Z` é o gatilho canônico, garantindo que toda release seja versionada e auditável.
 
