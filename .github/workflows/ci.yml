@@ -17,6 +17,8 @@ jobs:
           cache: true
       - name: Tidy modules
         run: go mod tidy
+      - name: Show go.sum (debug)
+        run: cat go.sum
       - name: Verify modules (go.mod/go.sum committed)
         run: git diff --exit-code go.mod go.sum
       - name: Build
