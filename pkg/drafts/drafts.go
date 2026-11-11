@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const tagSeparator = "|||"
+// tagSeparator is declared in struct.go (shared with the core aliases).
 
 type ActionRunResult struct {
 	UUID         string `json:"uuid"`
