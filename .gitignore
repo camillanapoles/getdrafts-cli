@@ -30,3 +30,7 @@ android/app/libs/*.jar
 # GitNexus codemap artifacts (regenerable)
 .gitnexus/
 .claude/
+
+# GitNexus agent instruction files (regenerable, identical pair)
+AGENTS.md
+CLAUDE.md
