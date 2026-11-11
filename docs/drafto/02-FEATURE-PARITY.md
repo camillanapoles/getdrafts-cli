@@ -25,7 +25,7 @@
 |---|---|---|---|---|
 | Inbox | ✅ | ✅ | P0 | |
 | Archive | ✅ | ✅ | P0 | |
-| Trash (+ 30d expiry) | 🟡 | 🟡 | P1 | Expiração automática. |
+| Trash (+ 30d expiry) | ✅ | ✅ | P1 | Auto-delete 30 dias no core (`TrashedAt` + `TrashPruner.PurgeTrash`); CLI `drafto purge`. |
 | Flagged | ✅ | ✅ | P0 | |
 | All (inbox+archive) | ✅ | ✅ | P0 | |
 | Tags (multiplas) | ✅ | ✅ | P0 | |
@@ -33,8 +33,8 @@
 | #tagged / #untagged | 🟠 | 🟠 | P2 | |
 | Workspaces | 🟡 | 🟡 | P1 | Configuração de filtro/sort/group. |
 | Workspace import/export | 🟠 | 🟠 | P2 | JSON. |
-| Full-text search | ✅ | ✅ | P0 | SQLite FTS5. |
-| Sort (created/modified/accessed) | ✅ | ✅ | P1 | |
+| Full-text search | ✅ | ✅ | P0 | Conteúdo + título + tags no core; FTS5 no backend SQLite (Phase 1). |
+| Sort (created/modified/accessed) | ✅ | ✅ | P1 | `accessed` via `AccessedAt` (refresh no `Get`); + sort por nome (`SortName`); CLI `list --sort/--desc`. |
 | Sort flagged to top | ✅ | ✅ | P1 | |
 
 ## 3. Actions Engine
@@ -61,8 +61,8 @@
 | `[[draft_title]]` | primeira linha | ✅ |
 | `[[draft_uuid]]` | uuid | ✅ |
 | `[[date]]` / `[[date_created]]` / `[[date_modified]]` | datas | ✅ |
-| `[[clipboard]]` | clipboard (via injeção) | 🟠 |
-| `[[workspace]]` | workspace ativo | 🟠 |
+| `[[clipboard]]` | clipboard (via injeção de `ClipboardReader` no `ActionRunner`) | ✅ |
+| `[[workspace]]` | workspace ativo (env de `RenderTemplateEnv`) | ✅ |
 
 ## 5. Interoperabilidade
 
