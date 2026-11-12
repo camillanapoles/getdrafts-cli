@@ -196,10 +196,12 @@ func (s *SQLiteStore) Get(ctx context.Context, uuid string) (Draft, error) {
 	}
 	d.Tags = tags[uuid]
 
-	// Refresh AccessedAt.
-	if _, err := s.db.ExecContext(ctx, `UPDATE drafts SET accessed_at = ? WHERE uuid = ?`, nowStr(), uuid); err != nil {
+	// Refresh AccessedAt (parity: Drafts "accessed" sort).
+	now := nowStr()
+	if _, err := s.db.ExecContext(ctx, `UPDATE drafts SET accessed_at = ? WHERE uuid = ?`, now, uuid); err != nil {
 		return Draft{}, err
 	}
+	d.AccessedAt = now
 	return d, nil
 }
 
