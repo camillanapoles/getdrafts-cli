@@ -37,18 +37,18 @@ jobs:
           cd /tmp/out
           unzip -o -q drafto.aar classes.jar -d x
           cd x
-          unzip -l classes.jar | awk '{print $4}' | grep -E "\.class$" | sed 's|/|.|g;s|\.class$||' | sort -u > /tmp/classes.txt
-          echo "=== CLASSES ==="
-          head -40 /tmp/classes.txt
-          for c in $(grep -E "^(go\.drafto\.(Core|Draft|Counts|ActionRunResult)|go\.Seq)$" /tmp/classes.txt); do
-            echo "########## $c"
-            javap -classpath classes.jar "$c" 2>&1 | head -60
-          done > /tmp/sig.txt
-          cat /tmp/sig.txt
+          unzip -l classes.jar | awk '{print $4}' | grep -E "\.class$" | grep -v '\$' | sed 's|/|.|g;s|\.class$||' | sort -u > /tmp/classes.txt
+          echo "### classes:"; cat /tmp/classes.txt
+          : > /tmp/sig.txt
+          for c in $(cat /tmp/classes.txt); do
+            case "$c" in go.drafto.*) echo "########## $c" >> /tmp/sig.txt; javap -classpath classes.jar "$c" >> /tmp/sig.txt 2>&1 ;; esac
+          done
+          wc -l /tmp/sig.txt
           i=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             echo "::error title=SIG[$i]::$line"
             i=$((i+1))
-            [ $i -ge 95 ] && break
+            [ $i -ge 190 ] && break
           done < /tmp/sig.txt
+          exit 0
