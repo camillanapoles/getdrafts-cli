@@ -28,6 +28,7 @@ Release atual: **v0.2.0** (`Latest`). Próximo gate: tag `v0.3.0` → `SPEC-OPS-
 | [06-HANDOFF](06-HANDOFF.md) | Estado atual e como continuar. |
 | [07-ROADMAP-EXECUCAO](07-ROADMAP-EXECUCAO.md) | **Plano de execução:** specs, status feito×pendente por fase, pré-requisitos de início (DoR) por spec, paralelismo por workspace, gates de release. |
 | [08-AUDIT-2026-11-12](08-AUDIT-2026-11-12.md) | Auditoria de estado com evidência (`arquivo:linha`), divergências doc↔código (D1–D11), defeitos (F1–F10), restrições de ambiente. |
+| [09-WORKSPACES-PARALELOS](09-WORKSPACES-PARALELOS.md) | **Produção paralela:** posse de arquivo por workspace (W1–W6), contrato de sessão, **regras de merge/conflito** (fila, `go.sum`, `ci.yml`, docs de estado, conflito semântico), matriz de compatibilidade e escape hatches. |
 | [specs/README](specs/README.md) | Sistema de specs: índice de status, regras de abertura, [template](specs/_TEMPLATE.md). |
 
 ## Resumo da arquitetura
