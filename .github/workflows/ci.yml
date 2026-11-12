@@ -109,11 +109,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+          cache-disabled: true
       - name: Build APK
         shell: bash
         run: |
           set +e
-          out=$( cd android && gradle assembleDebug --no-daemon --stacktrace 2>&1 )
+          # --rerun-tasks: o cache do Gradle mascarou erros de compilação
+          # Kotlin por vários ciclos (tarefas "up-to-date" com código quebrado).
+          out=$( cd android && gradle assembleDebug --no-daemon --no-build-cache --rerun-tasks 2>&1 )
           rc=$?
           echo "$out" | tail -60
           if [ $rc -ne 0 ]; then
