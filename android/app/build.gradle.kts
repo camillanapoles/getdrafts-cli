@@ -86,15 +86,17 @@ val verifyGoBinding by tasks.registering {
                 val e = zip.entries()
                 while (e.hasMoreElements()) names.add(e.nextElement().name)
             }
-            val hasCore = names.contains("go/drafto/Core.class")
+            // gomobile emits the bound Go package as its OWN Java package
+            // (`drafto/`), while `go/` holds only runtime support (Seq, Universe).
+            // The Go type `Core` becomes `drafto/Core.class`.
+            val bound = names.filter { it.startsWith("drafto/") && it.endsWith(".class") }
+            val hasCore = bound.contains("drafto/Core.class")
             val hasSeq = names.contains("go/Seq.class")
-            logger.lifecycle("verifyGoBinding: ${names.size} entries, go.drafto.Core=$hasCore, go.Seq=$hasSeq")
-            val goEntries = names.filter { it.startsWith("go/") }
-            logger.lifecycle("verifyGoBinding: go/* entries: " + goEntries.joinToString(", "))
+            logger.lifecycle("verifyGoBinding: ${names.size} entries, drafto/*: " + bound.joinToString(", "))
             if (!hasCore || !hasSeq) {
                 throw GradleException(
-                    "drafto.aar lacks go/drafto/Core.class (Core=$hasCore, Seq=$hasSeq). " +
-                        "go/* entries: " + goEntries.joinToString(" | ")
+                    "drafto.aar lacks drafto/Core.class (Core=$hasCore, Seq=$hasSeq). " +
+                        "bound classes: " + bound.joinToString(" | ")
                 )
             }
         }
