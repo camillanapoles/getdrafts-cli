@@ -86,17 +86,42 @@ val verifyGoBinding by tasks.registering {
                 val e = zip.entries()
                 while (e.hasMoreElements()) names.add(e.nextElement().name)
             }
-            // gomobile emits the bound Go package as its OWN Java package
-            // (`drafto/`), while `go/` holds only runtime support (Seq, Universe).
-            // The Go type `Core` becomes `drafto/Core.class`.
+            // gomobile emits the bound package as its OWN Java package:
+            //   drafto/Core.class   — the bound Go struct
+            //   drafto/Drafto.class — package-level functions (New, NewAt)
+            // `go/` contains only runtime support (Seq, Universe).
             val bound = names.filter { it.startsWith("drafto/") && it.endsWith(".class") }
             val hasCore = bound.contains("drafto/Core.class")
+            val hasPkg = bound.contains("drafto/Drafto.class")
             val hasSeq = names.contains("go/Seq.class")
             logger.lifecycle("verifyGoBinding: ${names.size} entries, drafto/*: " + bound.joinToString(", "))
-            if (!hasCore || !hasSeq) {
+            if (!hasCore || !hasPkg || !hasSeq) {
                 throw GradleException(
-                    "drafto.aar lacks drafto/Core.class (Core=$hasCore, Seq=$hasSeq). " +
-                        "bound classes: " + bound.joinToString(" | ")
+                    "drafto.aar is missing generated classes " +
+                        "(drafto.Core=$hasCore, drafto.Drafto=$hasPkg, go.Seq=$hasSeq). " +
+                        "The reflection bridge would fall back to FakeEngine. " +
+                        "Bound entries: " + bound.joinToString(" | ")
+                )
+            }
+            // Presence of the classes is not enough: gomobile SILENTLY drops
+            // exported methods whose signature mentions a type outside the bound
+            // package. Check the methods the reflection bridge actually calls.
+            val required = listOf(
+                "createDraftJSON", "getDraftJSON", "queryDraftsJSON", "setFlaggedJSON",
+                "archiveDraft", "trashDraft", "replaceDraftJSON", "addTagsJSON",
+                "runActionJSON", "listTagsJSON", "countsJSON", "registerAction", "close",
+            )
+            val proc = ProcessBuilder(
+                "javap", "-classpath", jar.absolutePath, "drafto.Core", "drafto.Drafto"
+            ).redirectErrorStream(true).start()
+            val javap = proc.inputStream.bufferedReader().readText()
+            proc.waitFor()
+            val missing = required.filter { !javap.contains(it) }
+            if (!javap.contains("newAt") || missing.isNotEmpty()) {
+                throw GradleException(
+                    "drafto.aar binding is incomplete: newAt present=${javap.contains("newAt")}, " +
+                        "missing methods=$missing. Rebuild the AAR (gomobile bind). " +
+                        "javap said: " + javap.take(2000)
                 )
             }
         }

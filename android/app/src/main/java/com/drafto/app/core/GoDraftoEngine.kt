@@ -1,186 +1,186 @@
 package com.drafto.app.core
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 /**
- * Reflection-based adapter over the gomobile-generated AAR.
+ * Reflection adapter over the gomobile-generated AAR.
+ *
+ * ## Shape of the generated API (verified with javap)
+ *
+ * ```
+ * public abstract class drafto.Drafto {          // package-level functions
+ *   public static native drafto.Core new_();     // New()
+ *   public static native drafto.Core newAt(java.lang.String) throws Exception;
+ * }
+ * public final class drafto.Core {               // the bound Go struct
+ *   public drafto.Core();
+ *   public native void archiveDraft(String) throws Exception;
+ *   public native void trashDraft(String) throws Exception;
+ *   public native void close() throws Exception;
+ *   public native void registerAction(String, String) throws Exception;
+ *   ... JSON methods (createDraftJSON, queryDraftsJSON, ...) ...
+ * }
+ * ```
+ *
+ * Notes that cost CI cycles to learn:
+ *   - The class is **`drafto.Drafto`**, not `go.drafto.Drafto`: `go/` holds only
+ *     the runtime (`go.Seq`, `go.Universe`).
+ *   - gomobile lowercases the first letter: `NewAt` → `newAt`, `Close` → `close`.
+ *   - A method returning a type from another package (`core.Draft`) is dropped
+ *     **silently** from the generated class, so the boundary passes JSON.
  *
  * ## Why reflection
  *
- * The AAR (`drafto.aar`) is produced by the CI (`gomobile bind`) and by
- * `android/core-go/build-core.sh`. It is **not** in the repository, so the app
- * must compile without it. A compile-time dependency on the generated
- * `go.drafto.Core` class would break every local build and every CI run that
- * does not bind first.
- *
- * Reflection keeps the build hermetic: the code compiles always, and the real
- * engine activates only when the binding is actually on the classpath. When it
- * is missing we fail fast with a clear message instead of silently falling
- * back to fake storage.
- *
- * ## Contract with the AAR
- *
- * `gomobile bind` emits a Java/Kotlin class `go.drafto.Core` with:
- *   - constructors: `Core()` (in-memory) and, from our boundary, `NewAt`-based
- *     construction is exposed as a package function — see [openAt].
- *   - methods mirroring the `//export` functions: `CreateDraft`, `GetDraft`,
- *     `QueryDrafts`, `SetFlagged`, `ArchiveDraft`, `TrashDraft`,
- *     `ReplaceDraft`, `AddTags`, `RunAction`, `ListTags`, `Counts`,
- *     `RegisterAction`, `Close`.
- *   - `go.Seq.setContext(android.content.Context)` must be called once so the
- *     Go runtime can reach the Android context (files dir, etc).
- *
- * Every call is wrapped so a missing/renamed member produces an actionable
- * error instead of a `NoSuchMethodException` buried in a stack trace.
+ * The AAR is produced by CI (`gomobile bind`) and by `build-core.sh`; it is not
+ * in the repository. A compile-time dependency would break every build that
+ * does not bind first. Reflection keeps the app compiling everywhere; the real
+ * engine activates only when the binding is on the classpath.
  */
 class GoDraftoEngine private constructor(
     private val binding: Any,
-    private val databasePath: String,
+    private val dbPath: String,
 ) : DraftoEngine {
-
-    // ---- Resolution helpers -------------------------------------------------
 
     private val bindingClass: Class<*> = binding.javaClass
 
-    private fun method(name: String, vararg arity: Int): java.lang.reflect.Method {
-        val candidates = bindingClass.methods.filter { it.name == name && it.parameterCount in arity }
-        return candidates.firstOrNull()
-            ?: error(
-                "GoDraftoEngine: '$name' (arity ${arity.joinToString("/")}) not found on " +
-                    "${bindingClass.name}. The AAR is out of date — rebuild it with " +
-                    "android/core-go/build-core.sh or the CI job."
-            )
-    }
+    // ---- Reflection helpers ------------------------------------------------
 
-    private fun invoke(name: String, args: List<Any?>): Any? {
+    private fun method(name: String, arity: Int): java.lang.reflect.Method =
+        bindingClass.methods.firstOrNull { it.name == name && it.parameterCount == arity }
+            ?: error(
+                "GoDraftoEngine: '$name/$arity' not found on ${bindingClass.name}. " +
+                    "The AAR is stale — rerun android/core-go/build-core.sh or the CI job."
+            )
+
+    private fun invoke(name: String, vararg args: Any?): Any? {
         val m = method(name, args.size)
         return try {
-            m.invoke(binding, *args.toTypedArray())
+            m.invoke(binding, *args)
         } catch (e: java.lang.reflect.InvocationTargetException) {
-            // gomobile methods declare `throws Exception`; surface the cause.
+            // gomobile declares `throws Exception`; surface the Go error itself.
             throw (e.cause ?: e)
         }
     }
 
-    // ---- Mapping Go structs (plain public fields) to Kotlin data classes ----
+    /** Binding call returning JSON; "" means "no result". */
+    private fun json(name: String, vararg args: Any?): String =
+        (invoke(name, *args) as? String) ?: ""
 
-    private fun field(obj: Any, name: String): Any? = runCatching {
-        obj.javaClass.getMethod("get${name.replaceFirstChar { it.uppercase() }}").invoke(obj)
-    }.getOrElse {
-        obj.javaClass.getField(name).get(obj)
-    }
+    // ---- JSON → Kotlin models ----------------------------------------------
 
-    private fun toDraft(go: Any?): Draft {
-        requireNotNull(go) { "GoDraftoEngine: null draft from binding" }
-        val tags = runCatching { (field(go, "tags") as? List<*>)?.mapNotNull { it as? String } ?: emptyList() }
-            .getOrElse { emptyList() }
+    private fun toDraft(json: String): Draft {
+        val o = JSONObject(json)
+        val tags = o.optJSONArray("tags")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it) }
+        } ?: emptyList()
         return Draft(
-            uuid = field(go, "uuid") as? String ?: "",
-            content = field(go, "content") as? String ?: "",
-            title = field(go, "title") as? String ?: "",
+            uuid = o.optString("uuid"),
+            content = o.optString("content"),
+            title = o.optString("title"),
             tags = tags,
-            isFlagged = field(go, "isFlagged") as? Boolean ?: false,
-            isArchived = field(go, "isArchived") as? Boolean ?: false,
-            isTrashed = field(go, "isTrashed") as? Boolean ?: false,
-            folder = field(go, "folder") as? String ?: "inbox",
-            createdAt = field(go, "createdAt") as? String ?: "",
-            modifiedAt = field(go, "modifiedAt") as? String ?: "",
-            permalink = field(go, "permalink") as? String ?: "",
+            isFlagged = o.optBoolean("isFlagged"),
+            isArchived = o.optBoolean("isArchived"),
+            isTrashed = o.optBoolean("isTrashed"),
+            folder = o.optString("folder", "inbox"),
+            createdAt = o.optString("createdAt"),
+            modifiedAt = o.optString("modifiedAt"),
+            permalink = o.optString("permalink"),
         )
     }
 
-    private fun toCounts(go: Any?): Counts {
-        requireNotNull(go) { "GoDraftoEngine: null counts from binding" }
-        fun n(name: String) = (field(go, name) as? Number)?.toInt() ?: 0
-        return Counts(
-            inbox = n("inbox"),
-            flagged = n("flagged"),
-            archive = n("archive"),
-            trash = n("trash"),
-            all = n("all"),
-        )
-    }
-
-    private fun toResult(go: Any?): ActionRunResult {
-        requireNotNull(go) { "GoDraftoEngine: null action result from binding" }
-        return ActionRunResult(
-            uuid = field(go, "uuid") as? String ?: "",
-            createdDraft = field(go, "createdDraft") as? Boolean ?: false,
-            output = field(go, "output") as? String ?: "",
-            copied = field(go, "copied") as? String ?: "",
-        )
-    }
-
-    private fun stringList(tags: List<String>): Any {
-        // gomobile accepts java.util.List for []string parameters.
-        return java.util.ArrayList(tags)
+    private fun tagsJson(tags: List<String>): String {
+        if (tags.isEmpty()) return ""
+        val arr = JSONArray()
+        tags.forEach { arr.put(it) }
+        return arr.toString()
     }
 
     // ---- DraftoEngine ------------------------------------------------------
 
     override fun createDraft(content: String, tags: List<String>, flagged: Boolean): Draft =
-        toDraft(invoke("CreateDraft", listOf(content, stringList(tags), flagged)))
+        toDraft(json("createDraftJSON", content, tagsJson(tags), flagged))
 
-    override fun getDraft(uuid: String): Draft? = runCatching {
-        toDraft(invoke("GetDraft", listOf(uuid)))
-    }.getOrNull()
+    override fun getDraft(uuid: String): Draft? =
+        json("getDraftJSON", uuid).takeIf { it.isNotEmpty() }?.let { toDraft(it) }
 
     override fun queryDrafts(filter: String, search: String, tags: List<String>, limit: Int): List<Draft> {
-        @Suppress("UNCHECKED_CAST")
-        val raw = invoke("QueryDrafts", listOf(filter, search, stringList(tags), limit)) as? List<Any?>
-        return raw.orEmpty().map { toDraft(it) }
+        val raw = json("queryDraftsJSON", filter, search, tagsJson(tags), limit)
+        if (raw.isEmpty()) return emptyList()
+        val arr = JSONArray(raw)
+        return (0 until arr.length()).map { toDraft(arr.getJSONObject(it).toString()) }
     }
 
     override fun setFlagged(uuid: String, flagged: Boolean): Draft =
-        toDraft(invoke("SetFlagged", listOf(uuid, flagged)))
+        toDraft(json("setFlaggedJSON", uuid, flagged))
 
     override fun archiveDraft(uuid: String) {
-        invoke("ArchiveDraft", listOf(uuid))
+        invoke("archiveDraft", uuid)
     }
 
     override fun trashDraft(uuid: String) {
-        invoke("TrashDraft", listOf(uuid))
+        invoke("trashDraft", uuid)
     }
 
     override fun replaceDraft(uuid: String, content: String): Draft =
-        toDraft(invoke("ReplaceDraft", listOf(uuid, content)))
+        toDraft(json("replaceDraftJSON", uuid, content))
 
     override fun addTags(uuid: String, tags: List<String>): Draft =
-        toDraft(invoke("AddTags", listOf(uuid, stringList(tags))))
+        toDraft(json("addTagsJSON", uuid, tagsJson(tags)))
 
-    override fun runAction(actionName: String, uuid: String): ActionRunResult =
-        toResult(invoke("RunAction", listOf(actionName, uuid)))
+    override fun runAction(actionName: String, uuid: String): ActionRunResult {
+        val o = JSONObject(json("runActionJSON", actionName, uuid))
+        return ActionRunResult(
+            uuid = o.optString("uuid"),
+            createdDraft = o.optBoolean("createdDraft"),
+            output = o.optString("output"),
+            copied = o.optString("copied"),
+        )
+    }
 
     override fun listTags(): List<String> {
-        @Suppress("UNCHECKED_CAST")
-        val raw = invoke("ListTags", emptyList()) as? List<Any?> ?: emptyList<Any?>()
-        return raw.mapNotNull { it as? String }
+        val raw = json("listTagsJSON")
+        if (raw.isEmpty()) return emptyList()
+        val arr = JSONArray(raw)
+        return (0 until arr.length()).map { arr.getString(it) }
     }
 
-    override fun counts(): Counts = toCounts(invoke("Counts", emptyList()))
+    override fun counts(): Counts {
+        val raw = json("countsJSON")
+        val o = if (raw.isEmpty()) JSONObject() else JSONObject(raw)
+        return Counts(
+            inbox = o.optInt("inbox"),
+            flagged = o.optInt("flagged"),
+            archive = o.optInt("archive"),
+            trash = o.optInt("trash"),
+            all = o.optInt("all"),
+        )
+    }
 
     override fun registerAction(name: String, stepsJson: String) {
-        invoke("RegisterAction", listOf(name, stepsJson))
+        invoke("registerAction", name, stepsJson)
     }
 
-    /** Releases the underlying Go engine (SQLite handle included). */
+    /** Releases the SQLite handle held by the Go engine. */
     fun close() {
-        runCatching { invoke("Close", emptyList()) }
+        runCatching { invoke("close") }
     }
 
-    /** Database file backing this engine. */
-    fun databasePath(): String = databasePath
+    fun databasePath(): String = dbPath
 
     companion object {
-        /** Class generated by `gomobile bind` for the `drafto` package. */
-        private const val BINDING_CLASS = "go.drafto.Core"
+        /** Class holding the bound Go struct (`drafto/core-go`). */
+        private const val STRUCT_CLASS = "drafto.Core"
+
+        /** Class holding the package-level functions (`New`, `NewAt`). */
+        private const val PKG_CLASS = "drafto.Drafto"
+
+        /** True when the gomobile binding is on the classpath. */
+        fun isAvailable(): Boolean = runCatching { Class.forName(STRUCT_CLASS) }.isSuccess
 
         /**
-         * Returns true when the gomobile binding is on the classpath.
-         */
-        fun isAvailable(): Boolean = runCatching { Class.forName(BINDING_CLASS) }.isSuccess
-
-        /**
-         * Wires the Android context into the Go runtime. Required once, before
-         * any other binding call: gomobile's `go.Seq` needs it.
+         * Wires the Android context into the Go runtime. gomobile's `go.Seq`
+         * needs it before any bound call (files dir, JNI lookups).
          */
         private fun installContext(context: android.content.Context) {
             runCatching {
@@ -193,23 +193,26 @@ class GoDraftoEngine private constructor(
         }
 
         /**
-         * Opens the persistent engine at [databasePath].
+         * Opens the persistent engine at [dbPath].
          *
-         * Uses the boundary's `NewAt` when exported; falls back to the default
-         * constructor when only `New` is available.
+         * Prefers `drafto.Drafto.newAt(path)` (SQLite). Falls back to the
+         * no-argument constructor (in-memory) so a binding built without
+         * `NewAt` degrades to a working — if non-persistent — engine.
          */
-        fun openAt(context: android.content.Context, databasePath: String): GoDraftoEngine {
+        fun openAt(context: android.content.Context, dbPath: String): GoDraftoEngine {
             installContext(context)
-            val cls = Class.forName(BINDING_CLASS)
-            val instance = runCatching {
-                // Package-level function `drafto.NewAt(path)` becomes a static
-                // method on the `Core` class generated by gomobile.
-                cls.getMethod("NewAt", String::class.java).invoke(null, databasePath)
-            }.getOrElse {
-                cls.getDeclaredConstructor().newInstance()
-                    ?: error("GoDraftoEngine: could not instantiate $BINDING_CLASS")
-            }
-            return GoDraftoEngine(instance, databasePath)
+            val pkg = runCatching { Class.forName(PKG_CLASS) }.getOrNull()
+            val instance: Any? = pkg?.let { cls ->
+                runCatching { cls.getMethod("newAt", String::class.java).invoke(null, dbPath) }
+                    .onFailure {
+                        android.util.Log.w(
+                            "GoDraftoEngine",
+                            "newAt(\$dbPath) failed; falling back to in-memory new_()", it,
+                        )
+                    }.getOrNull()
+            } ?: Class.forName(STRUCT_CLASS).getDeclaredConstructor().newInstance()
+            requireNotNull(instance) { "GoDraftoEngine: could not instantiate $STRUCT_CLASS" }
+            return GoDraftoEngine(instance, dbPath)
         }
     }
 }

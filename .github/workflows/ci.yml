@@ -99,34 +99,6 @@ jobs:
           test -s android/app/libs/drafto.aar || { echo "::error::AAR empty"; exit 1; }
           echo "AAR: $(stat -c%s android/app/libs/drafto.aar) bytes"
 
-      # TEMPORARY probe: dump the exact Java API of the generated binding.
-      # The message is written into a Gradle-style failure annotation because
-      # full job logs are egress-blocked in this environment. Remove once the
-      # reflection adapter is verified.
-      - name: PROBE binding API
-        if: always()
-        shell: bash
-        run: |
-          set -u
-          d=$(mktemp -d); cd "$d"
-          unzip -oq "$GITHUB_WORKSPACE/android/app/libs/drafto.aar" classes.jar
-          mkdir -p x; cd x; unzip -oq ../classes.jar
-          find . -name '*.class' | sed 's|^\./||' | sort > /tmp/classes.txt
-          {
-            echo "CLASSES: $(tr '\n' ' ' < /tmp/classes.txt)"
-            for c in $(grep -E '^drafto/.*\.class$' /tmp/classes.txt | sed 's|\.class$||' | head -3); do
-              echo "@@ $c"
-              javap -classpath . "${c//\//.}"
-            done
-          } > /tmp/probe.txt 2>&1
-          python3 - <<'EOF'
-          import json, os
-          txt = open('/tmp/probe.txt').read()
-          msg = txt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print(f"::error title=binding-api::{msg[:60000]}")
-          EOF
-          exit 1
-
       - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
@@ -187,21 +159,22 @@ jobs:
 
           rm -rf /tmp/apkx; mkdir -p /tmp/apkx
           ( cd /tmp/apkx && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex' )
-          # A string scan of the whole dex sees the type descriptor
-          # Lgo/drafto/Core; in the string table (dexdump -f prints only the
-          # header, which is what produced the earlier false negative).
+          # A string scan sees the type descriptor Ldrafto/Core; in the dex
+          # string table (dexdump -f prints only the header, which is what
+          # produced an earlier false negative).
           strings /tmp/apkx/classes*.dex > /tmp/apkx/dex.txt
-          hits=$(grep -c 'go/drafto' /tmp/apkx/dex.txt)
-          echo "dex strings: $(wc -l < /tmp/apkx/dex.txt) lines, go/drafto hits: $hits"
+          core_hits=$(grep -c 'drafto/Core' /tmp/apkx/dex.txt)
+          pkg_hits=$(grep -c 'drafto/Drafto' /tmp/apkx/dex.txt)
+          echo "dex strings: $(wc -l < /tmp/apkx/dex.txt) lines, drafto/Core=$core_hits drafto/Drafto=$pkg_hits"
 
-          case "$hits" in
-            0)
-              echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"
-              echo "--- classes.jar entries (top 25) ---"
-              unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar
-              unzip -l /tmp/apkx/classes.jar | head -25
-              fail=1 ;;
-            *) echo "OK: dex contains go/drafto ($hits hits)" ;;
-          esac
+          if [ "$core_hits" -eq 0 ] || [ "$pkg_hits" -eq 0 ]; then
+            echo "::error::drafto.Core/Drafto not in APK dex — reflection would fall back to FakeEngine"
+            echo "--- classes.jar entries (top 25) ---"
+            unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar
+            unzip -l /tmp/apkx/classes.jar | head -25
+            fail=1
+          else
+            echo "OK: dex contains drafto.Core and drafto.Drafto"
+          fi
 
           exit $fail
