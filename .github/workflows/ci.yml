@@ -135,33 +135,45 @@ jobs:
       # G2 gate: the APK must actually contain the Go core. GoDraftoEngine
       # resolves go.drafto.Core by reflection, so a dex without that class would
       # compile fine and silently run on FakeEngine.
+      #
+      # NOTE: no `set -e`/`pipefail` here and no `grep -q` downstream of a
+      # pipeline — grep -q exits early, the producer takes SIGPIPE and pipefail
+      # turns a *successful* match into a failure. Variables, not pipelines.
       - name: Verify APK embeds the Go core
         shell: bash
         run: |
-          set -uo pipefail
+          set -u
+          fail=0
+
           apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
           echo "APK: $apk ($(stat -c%s "$apk") bytes)"
-          unzip -l "$apk" | awk '{print $4}' | grep -E '^(lib/|classes.*\.dex$)' | sed 's/^/  /'
 
-          fail=0
-          if unzip -l "$apk" | awk '{print $4}' | grep -q '^lib/arm64-v8a/libgojni.so$'; then
-            echo "OK: lib/arm64-v8a/libgojni.so present"
-          else
-            echo "::error::APK does not embed libgojni.so — Go core missing"; fail=1
-          fi
+          entries=$(unzip -l "$apk" | awk '{print $4}')
+          echo "--- libs and dex in APK ---"
+          echo "$entries" | grep -E '^(lib/|classes.*\.dex$)' | sed 's/^/  /'
 
-          rm -rf /tmp/apkx && mkdir -p /tmp/apkx && (cd /tmp/apkx && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex')
-          # dexdump -f prints only the header; use a full strings scan, which
-          # sees the type descriptor Lgo/drafto/Core; in the string table.
+          case "$entries" in
+            *"lib/arm64-v8a/libgojni.so"*) echo "OK: libgojni.so present" ;;
+            *) echo "::error::APK does not embed libgojni.so — Go core missing"; fail=1 ;;
+          esac
+
+          rm -rf /tmp/apkx; mkdir -p /tmp/apkx
+          ( cd /tmp/apkx && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex' )
+          # A string scan of the whole dex sees the type descriptor
+          # Lgo/drafto/Core; in the string table (dexdump -f prints only the
+          # header, which is what produced the earlier false negative).
           strings /tmp/apkx/classes*.dex > /tmp/apkx/dex.txt
-          echo "dex string dump: $(wc -l < /tmp/apkx/dex.txt) lines, go/drafto hits: $(grep -c 'go/drafto' /tmp/apkx/dex.txt || true)"
-          if grep -q 'go/drafto/Core' /tmp/apkx/dex.txt; then
-            echo "OK: dex contains go/drafto/Core"
-          else
-            echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"
-            echo "--- classes.jar entries of the AAR (top 20) ---"
-            unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar 2>/dev/null \
-              && unzip -l /tmp/apkx/classes.jar | head -25
-            fail=1
-          fi
+          hits=$(grep -c 'go/drafto' /tmp/apkx/dex.txt)
+          echo "dex strings: $(wc -l < /tmp/apkx/dex.txt) lines, go/drafto hits: $hits"
+
+          case "$hits" in
+            0)
+              echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"
+              echo "--- classes.jar entries (top 25) ---"
+              unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar
+              unzip -l /tmp/apkx/classes.jar | head -25
+              fail=1 ;;
+            *) echo "OK: dex contains go/drafto ($hits hits)" ;;
+          esac
+
           exit $fail
