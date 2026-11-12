@@ -99,38 +99,32 @@ jobs:
           test -s android/app/libs/drafto.aar || { echo "::error::AAR empty"; exit 1; }
           echo "AAR: $(stat -c%s android/app/libs/drafto.aar) bytes"
 
-      # TEMPORARY probe: dump the exact Java API of the generated binding so the
-      # reflection adapter can be written against real signatures. Remove once
-      # GoDraftoEngine is verified.
+      # TEMPORARY probe: dump the exact Java API of the generated binding.
+      # The message is written into a Gradle-style failure annotation because
+      # full job logs are egress-blocked in this environment. Remove once the
+      # reflection adapter is verified.
       - name: PROBE binding API
         if: always()
         shell: bash
         run: |
           set -u
-          d=$(mktemp -d)
-          cd "$d"
+          d=$(mktemp -d); cd "$d"
           unzip -oq "$GITHUB_WORKSPACE/android/app/libs/drafto.aar" classes.jar
-          mkdir -p x && cd x && unzip -oq ../classes.jar
-          find . -name '*.class' | sed 's|^./||' | sort > /tmp/classes.txt
-          echo "=== ALL CLASSES ==="
-          cat /tmp/classes.txt
-          for c in $(grep -E '^drafto/.*\.class$' /tmp/classes.txt | sed 's|\.class$||' | head -6); do
-            echo "=== javap $c ==="
-            javap -classpath . "${c//\//.}" 2>&1 | head -60
-          done
-          echo "=== PROBE END ==="
-          # Force a failure carrying the probe output, so it lands in the
-          # check-run annotation (full logs are egress-blocked).
+          mkdir -p x; cd x; unzip -oq ../classes.jar
+          find . -name '*.class' | sed 's|^\./||' | sort > /tmp/classes.txt
           {
-            echo "PROBE DUMP"
-            sed -n '1,400p' /tmp/classes.txt
-            for c in $(grep -E '^drafto/.*\.class$' /tmp/classes.txt | sed 's|\.class$||' | head -4); do
-              echo "### $c"
-              javap -classpath . "${c//\//.}" 2>&1 | head -80
+            echo "CLASSES: $(tr '\n' ' ' < /tmp/classes.txt)"
+            for c in $(grep -E '^drafto/.*\.class$' /tmp/classes.txt | sed 's|\.class$||' | head -3); do
+              echo "@@ $c"
+              javap -classpath . "${c//\//.}"
             done
-          } > /tmp/probe.txt
-          head -c 60000 /tmp/probe.txt >&2
-          echo "::error::probe output follows in stderr"
+          } > /tmp/probe.txt 2>&1
+          python3 - <<'EOF'
+          import json, os
+          txt = open('/tmp/probe.txt').read()
+          msg = txt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f"::error title=binding-api::{msg[:60000]}")
+          EOF
           exit 1
 
       - name: Upload AAR
