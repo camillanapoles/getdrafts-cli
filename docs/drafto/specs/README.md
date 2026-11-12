@@ -67,3 +67,8 @@ Esqueleto: [`_TEMPLATE.md`](_TEMPLATE.md). Campos mínimos:
    `../02-FEATURE-PARITY.md` (status da feature) e `../06-HANDOFF.md` (§1 estado, §6 checklist).
 6. Paralelismo: siga a matriz 07 §5.3. Duas specs na mesma lane **não** rodam juntas se tocam o mesmo
    arquivo; `docs/**` roda sempre em paralelo com tudo.
+7. **Produção paralela e merge:** [`../09-WORKSPACES-PARALELOS.md`](../09-WORKSPACES-PARALELOS.md) define a
+   posse de arquivo por workspace (W1–W6), o claim com `automation:lane-lock` como mutex da lane, o rebase na
+   base de destino antes do PR de integração e a fila de `reverse/main`. A versão curta dessas regras está na
+   seção **§9** de cada issue de spec — começar sem ler o §9 da sua lane é apostar que ninguém tocou no
+   mesmo arquivo.
