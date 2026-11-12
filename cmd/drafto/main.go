@@ -4,8 +4,8 @@
 // Android app binds via gomobile. This is the "CLI base" reused for Android:
 // the commands map 1:1 to core.Store methods.
 //
-// Storage defaults to an in-memory store; swap for a SQLite store
-// (core.NewSQLiteStore, Phase 1) for persistence.
+// Storage defaults to a SQLite file at ./drafto.db (core.NewSQLiteStore);
+// falls back to an in-memory store if the database cannot be opened.
 package main
 
 import (
@@ -21,12 +21,23 @@ import (
 	"github.com/nerveband/drafts-applescript-cli/core"
 )
 
-// store is the storage backend. Defaults to in-memory; replace with SQLite.
-var store core.Store = core.NewMemoryStore()
+// store is the storage backend. Initialized in main() from the --db flag;
+// defaults to a SQLite file at ./drafto.db.
+var store core.Store
 
 func main() {
 	var args Args
 	p := arg.MustParse(&args)
+
+	// Initialize the storage backend. Defaults to SQLite; falls back to
+	// in-memory if the database cannot be opened.
+	if sqliteStore, err := core.NewSQLiteStore(args.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not open SQLite store at %q (%v); using in-memory store\n", args.DB, err)
+		store = core.NewMemoryStore()
+	} else {
+		store = sqliteStore
+		defer sqliteStore.Close()
+	}
 
 	ctx := context.Background()
 
@@ -126,6 +137,7 @@ type PurgeCmd struct {
 type SchemaCmd struct{}
 
 type Args struct {
+	DB      string      `arg:"--db" default:"drafto.db" help:"SQLite database path"`
 	Create  *CreateCmd  `arg:"subcommand:create" help:"create a draft"`
 	List    *ListCmd    `arg:"subcommand:list" help:"list drafts"`
 	Get     *GetCmd     `arg:"subcommand:get" help:"get a draft"`
