@@ -60,13 +60,13 @@ jobs:
       - name: Race (core)
         run: go test -race ./core/...
 
-  # Best-effort: the Android toolchain (SDK + NDK + gomobile) is not needed
-  # to ship the Go core. Every step is continue-on-error so a missing
-  # toolchain surfaces in the log without blocking merges.
+  # Android: gomobile bind do core Go -> AAR -> APK.
+  # Todo o pipeline é gate real (sem continue-on-error): bind, AAR e APK.
+  # A UI ainda usa FakeEngine (G2 em 06-HANDOFF §2.1), mas o app compila e
+  # empacota — o APK é publicado como artefato a cada run.
   android:
-    name: Android build (best-effort)
+    name: Android build (gomobile + APK)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -78,13 +78,56 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Compile gomobile boundary (plain Go)
+      - name: Compile boundary (plain Go)
         run: go build ./android/core-go/
 
+      - name: Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gobind
+          gomobile init
+
+      - name: Bind Go core to AAR
+        run: |
+          mkdir -p android/app/libs
+          gomobile bind -target=android -androidapi 24 -o android/app/libs/drafto.aar ./android/core-go
+          test -s android/app/libs/drafto.aar || { echo "::error::AAR empty"; exit 1; }
+          echo "AAR: $(stat -c%s android/app/libs/drafto.aar) bytes"
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-aar
+          path: android/app/libs/drafto.aar
+          if-no-files-found: error
+
       - uses: gradle/actions/setup-gradle@v4
-        continue-on-error: true
         with:
           gradle-version: '8.7'
+          cache-disabled: true
       - name: Build APK
-        continue-on-error: true
-        run: cd android && gradle assembleDebug --no-daemon
+        shell: bash
+        run: |
+          set +e
+          # --rerun-tasks: o cache do Gradle mascarou erros de compilação
+          # Kotlin por vários ciclos (tarefas "up-to-date" com código quebrado).
+          out=$( cd android && gradle assembleDebug --no-daemon --no-build-cache --rerun-tasks 2>&1 )
+          rc=$?
+          echo "$out" | tail -60
+          if [ $rc -ne 0 ]; then
+            echo "$out" | grep -E "^e: |error:|FAILURE|What went wrong|> " | tail -20 | while IFS= read -r l; do
+              [ -n "$l" ] && echo "::error title=gradle::$l"
+            done
+            exit 1
+          fi
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

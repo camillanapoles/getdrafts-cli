@@ -15,7 +15,10 @@ android/app/build/
 android/local.properties
 android/captures/
 android/.cxx/
-android/app/libs/*.aar
+# android/app/libs/*.aar is the gomobile binding consumed by the app.
+# It is produced by the CI job (artifact `drafto-aar`) and by
+# android/core-go/build-core.sh locally, so it is a build input, not output:
+# do not ignore it. Generated jars still are.
 android/app/libs/*.jar
 *.apk
 *.aab
