@@ -67,6 +67,28 @@ Correção: `x/mobile` entrou no grafo de módulo (`tool golang.org/x/mobile/cmd
 | Sem NDK no CI | ✅ `nttld/setup-ndk@v1` (r26d) |
 | `x/mobile` fora do grafo | ✅ `tool` directive no `go.mod` |
 | Hipótese errada registrada como risco | ✅ substituída pela causa real |
+| **APK nunca compilava** | ✅ Compose plugin do Kotlin 2.0 + gate real |
+| `continue-on-error` mascarava o APK | ✅ removido de todo o job Android |
+
+**Build Android — segunda causa raiz (ciclo v0.3.0):**
+
+O Gradle falhava em `:app` com:
+
+```
+Starting in Kotlin 2.0, the Compose Compiler Gradle plugin is required
+when compose is enabled.
+```
+
+O build declarava Kotlin 2.0.21 mas ainda usava o mecanismo do 1.9
+(`composeOptions.kotlinCompilerExtensionVersion = "1.5.14"`). Em Kotlin 2.0 o
+Compose compiler é um **plugin Gradle próprio** e sua versão segue a do Kotlin.
+
+Correção: `org.jetbrains.kotlin.plugin.compose` 2.0.21 no root (`apply false`) e
+aplicado no `:app`; `composeOptions` removido. Resultado: **`gradle assembleDebug`
+passa e o APK é publicado** como artefato `drafto-debug-apk`.
+
+> O `continue-on-error` no job Android foi o que escondeu isso por vários ciclos:
+> o job "passava" enquanto o Gradle falhava. Agora bind, AAR e APK são gates reais.
 
 **Próximo (G2):** `EngineFactory` → `GoDraftoEngine` consumindo o AAR, depois a ponte
 Kotlin `context.getDatabasePath("drafto.db")` para o `NewAt(path)`.

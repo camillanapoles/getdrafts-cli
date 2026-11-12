@@ -61,9 +61,9 @@ jobs:
         run: go test -race ./core/...
 
   # Android: gomobile bind do core Go -> AAR -> APK.
-  # O bind roda com falha real (sem continue-on-error): foi validado no ciclo
-  # v0.3.0 e agora é um gate, não um "best-effort". O APK segue best-effort
-  # até a UI migrar de FakeEngine para GoDraftoEngine (G2 em 06-HANDOFF §2.1).
+  # Todo o pipeline é gate real (sem continue-on-error): bind, AAR e APK.
+  # A UI ainda usa FakeEngine (G2 em 06-HANDOFF §2.1), mas o app compila e
+  # empacota — o APK é publicado como artefato a cada run.
   android:
     name: Android build (gomobile + APK)
     runs-on: ubuntu-latest
@@ -107,9 +107,13 @@ jobs:
           if-no-files-found: error
 
       - uses: gradle/actions/setup-gradle@v4
-        continue-on-error: true
         with:
           gradle-version: '8.7'
-      - name: Build APK (best-effort until G2)
-        continue-on-error: true
+      - name: Build APK
         run: cd android && gradle assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
