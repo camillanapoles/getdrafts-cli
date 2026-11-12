@@ -90,6 +90,24 @@ passa e o APK é publicado** como artefato `drafto-debug-apk`.
 > O `continue-on-error` no job Android foi o que escondeu isso por vários ciclos:
 > o job "passava" enquanto o Gradle falhava. Agora bind, AAR e APK são gates reais.
 
+**Build Android — terceira causa raiz (`FakeEngine.kt`):**
+
+Com o gate ligado, o `:app:compileDebugKotlin` revelou 4 erros que o cache do Gradle
+vinha mascarando (tarefas `up-to-date` com código quebrado):
+
+| Erro | Correção |
+|---|---|
+| `import kotlin.concurrent.synchronized` | não existe — `synchronized` é builtin de `kotlin` |
+| `Draft(...)` sem `isArchived`/`isTrashed` | os campos não têm default |
+| `archiveDraft`/`trashDraft` retornando `Draft` | contrato é `Unit` → corpo em bloco |
+| `mutate` `inline` com `return@synchronized` | agora não-inline, `return` simples |
+
+Resultado: **APK 15,9 MB e AAR 24,2 MB publicados** como artefatos, com
+`--no-build-cache --rerun-tasks` e `cache-disabled` no `setup-gradle`.
+
+> Lição de build: cache do Gradle + `continue-on-error` = dois mecanismos
+> independentes de mascarar falha. Um CI sem gate real não prova nada.
+
 **Próximo (G2):** `EngineFactory` → `GoDraftoEngine` consumindo o AAR, depois a ponte
 Kotlin `context.getDatabasePath("drafto.db")` para o `NewAt(path)`.
 
