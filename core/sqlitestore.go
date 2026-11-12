@@ -3,12 +3,22 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// tagBatchSize bounds the number of UUIDs per tags lookup so a query never
+// exceeds SQLite's host-parameter limit.
+const tagBatchSize = 500
+
+// memoryStoreSeq names in-memory databases so independent stores stay
+// isolated while every connection of one store shares its database.
+var memoryStoreSeq uint64
 
 // SQLiteStore is a SQLite-backed Store implementation. It is the production
 // backend for the Drafto clients (Android, Linux). FTS5 provides full-text
@@ -28,16 +38,36 @@ type SQLiteStore struct {
 // days (Drafts parity); use SetTrashRetention to change or disable it.
 // Pass ":memory:" for an in-memory database (useful for tests).
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
+	memory := path == ":memory:" || strings.HasPrefix(path, "file::memory:") || strings.Contains(path, "mode=memory")
+
+	var dsn string
+	if memory {
+		// A named shared-cache database (unique per store) plus a single
+		// connection (below): every operation sees the same in-memory
+		// database, and two stores never share one.
+		name := atomic.AddUint64(&memoryStoreSeq, 1)
+		dsn = fmt.Sprintf("file:drafto-mem-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", name)
+	} else {
+		dsn = fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
+	}
+
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	if memory {
+		// One connection: in-memory databases do not survive a new
+		// connection, even with shared cache.
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	}
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 	s := &SQLiteStore{db: db, trashRetention: defaultTrashRetention}
 	if err := s.migrate(); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -143,8 +173,13 @@ func (s *SQLiteStore) Create(ctx context.Context, content string, opts CreateOpt
 		CreatedAt:  ts,
 		ModifiedAt: ts,
 		Permalink:  Permalink(uuid),
-		Workspace:  s.activeWorkspace(),
 	}
+
+	ws, err := s.activeWorkspace(ctx)
+	if err != nil {
+		return Draft{}, fmt.Errorf("read active workspace: %w", err)
+	}
+	d.Workspace = ws
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -264,34 +299,38 @@ func (s *SQLiteStore) Query(ctx context.Context, q Query) ([]Draft, error) {
 		query += ` AND flagged = 1`
 	}
 
-	// FTS5 search.
-	if search != "" {
-		ftsQuery := ftsPhrase(search)
-		query += ` AND rowid IN (SELECT rowid FROM drafts_fts WHERE drafts_fts MATCH ?)`
-		args = append(args, ftsQuery)
-	}
+	// Full-text search. The filtering happens in Go via matchesSearch (the
+	// same helper MemoryStore uses) so both backends return identical
+	// results: case-insensitive substring over content, title and tags
+	// (FTS5 alone would only match whole tokens and would miss tags).
+	// The drafts_fts index is kept up to date for future ranked search.
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	out := []Draft{}
 	uuids := []string{}
 	for rows.Next() {
 		d, err := scanDraft(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, d)
 		uuids = append(uuids, d.UUID)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
 	}
+	// Close before the tag lookup: the in-memory backend runs on a single
+	// connection, so holding this cursor open would deadlock the next query.
+	rows.Close()
 
-	// Load tags for all matching drafts.
+	// Load tags for all matching drafts (batched: SQLite has a host
+	// parameter limit, and a workspace can match many drafts).
 	tagMap, err := s.loadTags(ctx, uuids)
 	if err != nil {
 		return nil, err
@@ -300,9 +339,12 @@ func (s *SQLiteStore) Query(ctx context.Context, q Query) ([]Draft, error) {
 		out[i].Tags = tagMap[out[i].UUID]
 	}
 
-	// Tag filtering in memory (consistent with MemoryStore semantics).
+	// Search + tag filtering in memory (identical to MemoryStore).
 	filtered := out[:0]
 	for _, d := range out {
+		if search != "" && !matchesSearch(d, search) {
+			continue
+		}
 		if !hasAllTags(d, incTags) || !hasNoTags(d, omitTags) {
 			continue
 		}
@@ -345,8 +387,17 @@ func (s *SQLiteStore) Update(ctx context.Context, uuid string, mutate func(*Draf
 	}
 	d.Tags = tags[uuid]
 
+	// Identity fields are immutable: a mutation cannot rewrite the creation
+	// timestamp or the permalink (parity: MemoryStore.Update only applies
+	// the mutate callback's content-level changes).
+	createdAt, permalink := d.CreatedAt, d.Permalink
+
 	if err := mutate(&d); err != nil {
 		return Draft{}, err
+	}
+	d.CreatedAt, d.Permalink = createdAt, permalink
+	if d.Permalink == "" {
+		d.Permalink = Permalink(uuid)
 	}
 
 	d.ModifiedAt = nowStr()
@@ -362,12 +413,15 @@ func (s *SQLiteStore) Update(ctx context.Context, uuid string, mutate func(*Draf
 	d.IsArchived = d.Folder == "archive"
 	d.IsTrashed = d.Folder == "trash"
 
-	// Update draft columns.
+	// Update draft columns. created_at/permalink/created_* are persisted
+	// too so a later Get returns exactly what this Update returned.
 	if _, err := tx.ExecContext(ctx, `UPDATE drafts SET
 		content=?, title=?, folder=?, flagged=?, pinned=?, syntax=?, workspace=?,
+		created_at=?, created_lat=?, created_lon=?, permalink=?,
 		modified_at=?, modified_lat=?, modified_lon=?, accessed_at=?, trashed_at=?
 		WHERE uuid=?`,
 		d.Content, d.Title, d.Folder, d.IsFlagged, d.Pinned, d.Syntax, d.Workspace,
+		d.CreatedAt, d.CreatedLatitude, d.CreatedLongitude, d.Permalink,
 		d.ModifiedAt, d.ModifiedLatitude, d.ModifiedLongitude, d.AccessedAt, d.TrashedAt,
 		uuid); err != nil {
 		return Draft{}, err
@@ -572,7 +626,7 @@ func (s *SQLiteStore) Workspaces(ctx context.Context) ([]Workspace, error) {
 
 // ActiveWorkspace returns the current workspace name.
 func (s *SQLiteStore) ActiveWorkspace(ctx context.Context) (string, error) {
-	return s.activeWorkspace(), nil
+	return s.activeWorkspace(ctx)
 }
 
 // SetActiveWorkspace sets the current workspace.
@@ -600,7 +654,7 @@ func (s *SQLiteStore) SaveWorkspace(ctx context.Context, ws Workspace) error {
 			folder=excluded.folder, search=excluded.search, tags=excluded.tags,
 			omit_tags=excluded.omit_tags, sort=excluded.sort, sort_desc=excluded.sort_desc,
 			flagged_top=excluded.flagged_top, action_group=excluded.action_group`,
-		ws.Name, ws.Folder, ws.Search, strings.Join(ws.Tags, ","), strings.Join(ws.OmitTags, ","),
+		ws.Name, ws.Folder, ws.Search, encodeTags(ws.Tags), encodeTags(ws.OmitTags),
 		ws.Sort.String(), ws.SortDescending, ws.FlaggedTop, ws.ActionGroup)
 	return err
 }
@@ -618,11 +672,19 @@ func (s *SQLiteStore) getWorkspace(ctx context.Context, name string) (Workspace,
 	return ws, nil
 }
 
-// activeWorkspace returns the current workspace name from settings.
-func (s *SQLiteStore) activeWorkspace() string {
+// activeWorkspace returns the current workspace name from settings. A
+// missing setting is the empty workspace; any other read/write error is
+// propagated so callers never silently operate in the wrong workspace.
+func (s *SQLiteStore) activeWorkspace(ctx context.Context) (string, error) {
 	var name string
-	_ = s.db.QueryRow(`SELECT value FROM settings WHERE key = 'active_workspace'`).Scan(&name)
-	return name
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = 'active_workspace'`).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // purgeExpiredTrash auto-purges trashed drafts past the retention window.
@@ -660,8 +722,8 @@ func scanWorkspace(row interface{ Scan(...interface{}) error }) (Workspace, erro
 	if err != nil {
 		return Workspace{}, err
 	}
-	ws.Tags = splitCSV(tagsStr)
-	ws.OmitTags = splitCSV(omitTagsStr)
+	ws.Tags = decodeTags(tagsStr)
+	ws.OmitTags = decodeTags(omitTagsStr)
 	ws.Sort = sortFromString(sortStr)
 	ws.SortDescending = sortDesc == 1
 	ws.FlaggedTop = flaggedTop == 1
@@ -679,6 +741,8 @@ func loadTagsTx(ctx context.Context, tx *sql.Tx, uuids []string) (map[string][]s
 }
 
 // loadTagsQuery loads tags for the given uuids using either a *sql.DB or *sql.Tx.
+// The lookups are batched so an unbounded result set can never exceed
+// SQLite's host-parameter limit (SQLITE_MAX_VARIABLE_NUMBER).
 func loadTagsQuery(ctx context.Context, q interface {
 	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }, uuids []string) (map[string][]string, error) {
@@ -686,23 +750,35 @@ func loadTagsQuery(ctx context.Context, q interface {
 	if len(uuids) == 0 {
 		return out, nil
 	}
-	args := make([]interface{}, len(uuids))
-	for i, u := range uuids {
-		args[i] = u
-	}
-	rows, err := q.QueryContext(ctx, `SELECT draft_uuid, tag FROM tags WHERE draft_uuid IN (`+placeholders(len(uuids))+`) ORDER BY tag`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var uuid, tag string
-		if err := rows.Scan(&uuid, &tag); err != nil {
+	for start := 0; start < len(uuids); start += tagBatchSize {
+		end := start + tagBatchSize
+		if end > len(uuids) {
+			end = len(uuids)
+		}
+		batch := uuids[start:end]
+		args := make([]interface{}, len(batch))
+		for i, u := range batch {
+			args[i] = u
+		}
+		rows, err := q.QueryContext(ctx, `SELECT draft_uuid, tag FROM tags WHERE draft_uuid IN (`+placeholders(len(batch))+`) ORDER BY tag`, args...)
+		if err != nil {
 			return nil, err
 		}
-		out[uuid] = append(out[uuid], tag)
+		for rows.Next() {
+			var uuid, tag string
+			if err := rows.Scan(&uuid, &tag); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[uuid] = append(out[uuid], tag)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // placeholders returns a string of ? placeholders joined by commas.
@@ -713,25 +789,39 @@ func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
-// ftsPhrase wraps a search string in double quotes for FTS5 phrase search,
-// escaping embedded quotes. This prevents FTS5 query syntax injection while
-// still matching the search terms as a phrase.
-func ftsPhrase(s string) string {
-	s = strings.ReplaceAll(s, `"`, `""`)
-	return `"` + s + `"`
+// encodeTags serializes a tag list for the workspaces table. Tags containing
+// commas are quoted with encoding/csv so their boundaries survive a round
+// trip; legacy rows written as plain comma-joined values still decode.
+func encodeTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	w := csv.NewWriter(&b)
+	_ = w.Write(tags) // writing to a strings.Builder never fails
+	w.Flush()
+	return strings.TrimRight(b.String(), "\r\n")
 }
 
-// splitCSV splits a comma-separated string, filtering empty entries.
-func splitCSV(s string) []string {
+// decodeTags is the inverse of encodeTags. A legacy plain comma-separated
+// value decodes to the same list it always did.
+func decodeTags(s string) []string {
 	if s == "" {
 		return nil
 	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
+	rec, err := csv.NewReader(strings.NewReader(s)).Read()
+	if err != nil {
+		// Malformed input: fall back to the legacy split.
+		rec = strings.Split(s, ",")
+	}
+	out := make([]string, 0, len(rec))
+	for _, p := range rec {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -752,5 +842,6 @@ func sortFromString(s string) Sort {
 
 // Ensure SQLiteStore satisfies Store.
 var _ Store = (*SQLiteStore)(nil)
+
 // Ensure SQLiteStore satisfies TrashPruner.
 var _ TrashPruner = (*SQLiteStore)(nil)

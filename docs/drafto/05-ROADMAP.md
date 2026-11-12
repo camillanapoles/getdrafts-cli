@@ -10,17 +10,17 @@
 - [x] Pacote `core/` (model, store interface, memory store, action engine, template tags, testes)
 - [x] Migração da CLI para o core (aliases de tipos)
 - [x] Scaffold Android (Gradle/Kotlin/gomobile)
-- [ ] CI GitHub Actions (test/build/android)
-- [ ] `cmd/drafto` Linux MVP
+- [x] CI GitHub Actions (test/build/android)
+- [x] `cmd/drafto` Linux MVP
 
 ## Phase 1 — Core nativo + storage
 **Objetivo:** storage SQLite, CRUD completo, organização.
 
-- [ ] `core/sqlitestore` (driver puro, schema abaixo)
-- [ ] CRUD: create/get/query/update/replace/append/prepend
-- [ ] Organização: inbox/archive/trash/flag/tags/workspaces/sort/search
-- [ ] `cmd/drafto` Linux (JSON + plain, schema, info)
-- [ ] Testes de integração (SQLite)
+- [x] `core/sqlitestore` (driver puro, schema abaixo)
+- [x] CRUD: create/get/query/update/replace/append/prepend
+- [x] Organização: inbox/archive/trash/flag/tags/workspaces/sort/search
+- [x] `cmd/drafto` Linux (JSON + plain, schema, info)
+- [x] Testes de integração (SQLite)
 
 ### Schema SQLite (proposto)
 ```sql

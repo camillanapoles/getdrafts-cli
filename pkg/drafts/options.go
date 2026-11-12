@@ -6,7 +6,7 @@ import "github.com/nerveband/drafts-applescript-cli/core"
 // clients share identical request shapes.
 
 type (
-	CreateOptions  = core.CreateOptions
-	ModifyOptions  = core.ModifyOptions
-	QueryOptions   = core.QueryOptions
+	CreateOptions = core.CreateOptions
+	ModifyOptions = core.ModifyOptions
+	QueryOptions  = core.QueryOptions
 )

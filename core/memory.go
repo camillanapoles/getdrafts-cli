@@ -24,11 +24,11 @@ const (
 // reference backend for tests/demos and documents the exact semantics the
 // SQLite and AppleScript backends must reproduce.
 type MemoryStore struct {
-	mu             sync.RWMutex
-	drafts         map[string]*Draft
-	tags           map[string]struct{}
-	workspaces     map[string]Workspace
-	order          []string // insertion order, for stable ties
+	mu              sync.RWMutex
+	drafts          map[string]*Draft
+	tags            map[string]struct{}
+	workspaces      map[string]Workspace
+	order           []string // insertion order, for stable ties
 	activeWorkspace string
 
 	// trashRetention is the trash auto-delete window; 0 disables expiry.
@@ -77,16 +77,16 @@ func (s *MemoryStore) Create(ctx context.Context, content string, opts CreateOpt
 	uuid := newUUID()
 	ts := nowStr()
 	d := &Draft{
-		UUID:      uuid,
-		Content:   content,
-		Title:     titleOf(content),
-		Tags:      append([]string{}, opts.Tags...),
-		IsFlagged: opts.Flagged,
-		Folder:    folder,
-		CreatedAt: ts,
+		UUID:       uuid,
+		Content:    content,
+		Title:      titleOf(content),
+		Tags:       append([]string{}, opts.Tags...),
+		IsFlagged:  opts.Flagged,
+		Folder:     folder,
+		CreatedAt:  ts,
 		ModifiedAt: ts,
-		Permalink: Permalink(uuid),
-		Workspace: s.activeWorkspace,
+		Permalink:  Permalink(uuid),
+		Workspace:  s.activeWorkspace,
 	}
 
 	for _, t := range d.Tags {

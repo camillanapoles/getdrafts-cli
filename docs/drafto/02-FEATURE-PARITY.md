@@ -33,7 +33,7 @@
 | #tagged / #untagged | 🟠 | 🟠 | P2 | |
 | Workspaces | 🟡 | 🟡 | P1 | Configuração de filtro/sort/group. |
 | Workspace import/export | 🟠 | 🟠 | P2 | JSON. |
-| Full-text search | ✅ | ✅ | P0 | Conteúdo + título + tags no core; FTS5 no backend SQLite (Phase 1). |
+| Full-text search | ✅ | ✅ | P0 | Conteúdo + título + tags (case-insensitive, substring) — mesma semântica em `MemoryStore` e `SQLiteStore` (`matchesSearch`). Índice FTS5 mantido para busca ranqueada futura. |
 | Sort (created/modified/accessed) | ✅ | ✅ | P1 | `accessed` via `AccessedAt` (refresh no `Get`); + sort por nome (`SortName`); CLI `list --sort/--desc`. |
 | Sort flagged to top | ✅ | ✅ | P1 | |
 
@@ -81,7 +81,7 @@
 
 | Get Drafts feature | Drafto | Prioridade | Notas |
 |---|---|---|---|
-| Storage local (SQLite) | ✅ | P0 | |
+| Storage local (SQLite) | ✅ | P0 | `core.SQLiteStore` (modernc.org/sqlite, pure Go, sem CGO); CLI `drafto` persiste em `--db` (`drafto.db` por padrão). |
 | Backup local | 🟠 | P2 | |
 | Multi-device sync | ⚪ | P4 | Phase 4. |
 | Widgets | ⚪ | P4 | Android widgets. |

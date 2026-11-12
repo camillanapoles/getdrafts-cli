@@ -15,7 +15,7 @@
    ```bash
    go build ./... && go test ./... && go vet ./...
    ```
-2. **Iniciar Phase 1:** implementar `core/sqlitestore` (com FTS5 para search + purge equivalente ao `MemoryStore`) + persistência do `cmd/drafto`.
+2. ~~**Phase 1:** `core/sqlitestore` + persistência do `cmd/drafto`.~~ ✅ **Concluída** (`core/sqlitestore.go`, pure Go via `modernc.org/sqlite`, sem CGO; CLI `drafto --db`).
 3. **Iniciar Phase 2:** Android — `gomobile bind` + UI Compose (expor sort/purge na UI).
 4. **CI:** já configurada — `ci.yml` (build/vet/test/race + android best-effort) e `release.yml` (disparada por tag `v*`/`drafto-v*` em `reverse/main` → goreleaser).
 
@@ -34,6 +34,26 @@ cd core && gomobile bind -target=android -o=../android/app/libs/drafto.aar .
 cd android && ./gradlew assembleDebug
 ```
 
+## 3.1 Estado do backend SQLite (Phase 1 — corrigido na revisão do PR #11)
+
+`core.SQLiteStore` é o backend de produção para Linux/Android (pure Go, sem CGO).
+Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitestore_test.go`):
+
+| Área | Comportamento |
+|---|---|
+| `Get` | Atualiza `accessed_at` **e devolve** o valor atualizado (sort por acesso). |
+| `Update` | Persiste todo campo devolvido (`created_at`, geo, `permalink`); `created_at`/`permalink` são imutáveis. |
+| Search | `matchesSearch` em Go (substring, case-insensitive, conteúdo+título+tags) — resultados idênticos ao `MemoryStore`. Índice FTS5 mantido para busca ranqueada futura. |
+| Tags | `loadTagsQuery` em lotes de 500 UUIDs (limite de parâmetros do SQLite). |
+| Workspaces | Tags serializadas em CSV (tags com vírgula sobrevivem); linhas legadas continuam lendo. |
+| `:memory:` | Conexão única + shared cache; cursores fechados antes de novas consultas. |
+| `activeWorkspace` | Erros de leitura são propagados (só "setting ausente" = workspace vazio). |
+| CLI `drafto` | SQLite é o default; falha ao abrir é erro fatal (`exit 1`) — memória só com `--memory`. |
+
+> **Nota de segurança/supply chain:** o `go.sum` versionado precisa conter os hashes
+> do `modernc.org/sqlite`. O CI regenera com `go mod tidy` e commita em push de branch
+> (nunca em `pull_request`). Qualquer divergência aparece como falha em "Commit go.sum if changed".
+
 ## 4. Decisão de projeto (ADRs)
 
 - **ADR-001 — Go core + gomobile:** aprovado. Reutiliza a base CLI, Android sem CGO.
@@ -46,7 +66,7 @@ cd android && ./gradlew assembleDebug
 ## 5. Riscos atuais
 
 - Go não compila neste sandbox (rede restrita). Primeira ação do dev: `go build ./...`.
-- SQLite backend ainda não implementado (Phase 1).
+- ~~SQLite backend ainda não implementado (Phase 1).~~ ✅ Implementado e coberto por testes de integração.
 - Android não compilado (sem SDK/network). Scaffold pronto, precisa de ambiente Android.
 
 ## 6. Checklist de continuidade
@@ -55,6 +75,6 @@ cd android && ./gradlew assembleDebug
 - [ ] `go test ./...` verde
 - [ ] `go vet ./...` limpo
 - [x] CI configurada (`ci.yml`) + release por tag (`release.yml`)
-- [ ] `core/sqlitestore` implementado (com FTS5 + purge)
-- [ ] `cmd/drafto` Linux funcional com persistência
+- [x] `core/sqlitestore` implementado (com FTS5 + purge)
+- [x] `cmd/drafto` Linux funcional com persistência
 - [ ] Android APK installa e captura funciona

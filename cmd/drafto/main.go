@@ -4,8 +4,9 @@
 // Android app binds via gomobile. This is the "CLI base" reused for Android:
 // the commands map 1:1 to core.Store methods.
 //
-// Storage defaults to a SQLite file at ./drafto.db (core.NewSQLiteStore);
-// falls back to an in-memory store if the database cannot be opened.
+// Storage defaults to a SQLite file at ./drafto.db (core.NewSQLiteStore).
+// In-memory storage is opt-in via --memory; a database that cannot be opened
+// is a hard error so writes are never silently discarded.
 package main
 
 import (
@@ -25,18 +26,29 @@ import (
 // defaults to a SQLite file at ./drafto.db.
 var store core.Store
 
+// storageLabel describes the backend in use, for human-facing output.
+var storageLabel string
+
 func main() {
 	var args Args
 	p := arg.MustParse(&args)
 
-	// Initialize the storage backend. Defaults to SQLite; falls back to
-	// in-memory if the database cannot be opened.
-	if sqliteStore, err := core.NewSQLiteStore(args.DB); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not open SQLite store at %q (%v); using in-memory store\n", args.DB, err)
+	// Initialize the storage backend. SQLite is the default. In-memory
+	// storage is opt-in only (--memory) so a broken database path never
+	// silently routes writes to a store that is discarded on exit.
+	if args.Memory {
 		store = core.NewMemoryStore()
+		storageLabel = "in-memory (ephemeral — --memory)"
 	} else {
+		sqliteStore, err := core.NewSQLiteStore(args.DB)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: could not open SQLite store at %q: %v\n", args.DB, err)
+			fmt.Fprintln(os.Stderr, "hint: fix the path/permissions with --db, or pass --memory for throwaway storage")
+			os.Exit(1)
+		}
 		store = sqliteStore
 		defer sqliteStore.Close()
+		storageLabel = fmt.Sprintf("SQLite (%s)", args.DB)
 	}
 
 	ctx := context.Background()
@@ -45,7 +57,7 @@ func main() {
 		p.WriteHelp(os.Stdout)
 		fmt.Println()
 		fmt.Println("Drafto CLI - native client for the Drafto engine.")
-		fmt.Println("Storage: in-memory (swap for SQLite in Phase 1).")
+		fmt.Printf("Storage: %s\n", storageLabel)
 		return
 	}
 
@@ -137,19 +149,20 @@ type PurgeCmd struct {
 type SchemaCmd struct{}
 
 type Args struct {
-	DB      string      `arg:"--db" default:"drafto.db" help:"SQLite database path"`
-	Create  *CreateCmd  `arg:"subcommand:create" help:"create a draft"`
-	List    *ListCmd    `arg:"subcommand:list" help:"list drafts"`
-	Get     *GetCmd     `arg:"subcommand:get" help:"get a draft"`
-	Search  *SearchCmd  `arg:"subcommand:search" help:"search drafts"`
-	Flag    *FlagCmd    `arg:"subcommand:flag" help:"flag a draft"`
-	Unflag  *UnflagCmd  `arg:"subcommand:unflag" help:"unflag a draft"`
-	Archive *ArchCmd    `arg:"subcommand:archive" help:"archive a draft"`
-	Trash   *TrashCmd   `arg:"subcommand:trash" help:"trash a draft"`
-	Purge   *PurgeCmd   `arg:"subcommand:purge" help:"purge expired trashed drafts"`
-	Tags    *TagsCmd    `arg:"subcommand:tags" help:"list tags"`
-	Counts  *CountsCmd  `arg:"subcommand:counts" help:"show folder counts"`
-	Schema  *SchemaCmd  `arg:"subcommand:schema" help:"output command schema"`
+	DB      string     `arg:"--db" default:"drafto.db" help:"SQLite database path"`
+	Memory  bool       `arg:"--memory" help:"use ephemeral in-memory storage instead of SQLite"`
+	Create  *CreateCmd `arg:"subcommand:create" help:"create a draft"`
+	List    *ListCmd   `arg:"subcommand:list" help:"list drafts"`
+	Get     *GetCmd    `arg:"subcommand:get" help:"get a draft"`
+	Search  *SearchCmd `arg:"subcommand:search" help:"search drafts"`
+	Flag    *FlagCmd   `arg:"subcommand:flag" help:"flag a draft"`
+	Unflag  *UnflagCmd `arg:"subcommand:unflag" help:"unflag a draft"`
+	Archive *ArchCmd   `arg:"subcommand:archive" help:"archive a draft"`
+	Trash   *TrashCmd  `arg:"subcommand:trash" help:"trash a draft"`
+	Purge   *PurgeCmd  `arg:"subcommand:purge" help:"purge expired trashed drafts"`
+	Tags    *TagsCmd   `arg:"subcommand:tags" help:"list tags"`
+	Counts  *CountsCmd `arg:"subcommand:counts" help:"show folder counts"`
+	Schema  *SchemaCmd `arg:"subcommand:schema" help:"output command schema"`
 }
 
 func (Args) Description() string {
@@ -267,8 +280,8 @@ func parseFilter(s string) (core.Filter, error) {
 
 func schema() interface{} {
 	return map[string]interface{}{
-		"name":    "drafto",
-		"engine":  "core.Store",
+		"name":   "drafto",
+		"engine": "core.Store",
 		"commands": []string{
 			"create", "list", "get", "search",
 			"flag", "unflag", "archive", "trash", "purge",
