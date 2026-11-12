@@ -110,7 +110,18 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Build APK
-        run: cd android && gradle assembleDebug --no-daemon
+        shell: bash
+        run: |
+          set +e
+          out=$( cd android && gradle assembleDebug --no-daemon --stacktrace 2>&1 )
+          rc=$?
+          echo "$out" | tail -60
+          if [ $rc -ne 0 ]; then
+            echo "$out" | grep -E "^e: |error:|FAILURE|What went wrong|> " | tail -20 | while IFS= read -r l; do
+              [ -n "$l" ] && echo "::error title=gradle::$l"
+            done
+            exit 1
+          fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
