@@ -60,13 +60,13 @@ jobs:
       - name: Race (core)
         run: go test -race ./core/...
 
-  # Best-effort: the Android toolchain (SDK + NDK + gomobile) is not needed
-  # to ship the Go core. Every step is continue-on-error so a missing
-  # toolchain surfaces in the log without blocking merges.
+  # Android: gomobile bind do core Go -> AAR -> APK.
+  # O bind roda com falha real (sem continue-on-error): foi validado no ciclo
+  # v0.3.0 e agora é um gate, não um "best-effort". O APK segue best-effort
+  # até a UI migrar de FakeEngine para GoDraftoEngine (G2 em 06-HANDOFF §2.1).
   android:
-    name: Android build (best-effort)
+    name: Android build (gomobile + APK)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -78,13 +78,38 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Compile gomobile boundary (plain Go)
+      - name: Compile boundary (plain Go)
         run: go build ./android/core-go/
+
+      - name: Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gobind
+          gomobile init
+
+      - name: Bind Go core to AAR
+        run: |
+          mkdir -p android/app/libs
+          gomobile bind -target=android -androidapi 24 -o android/app/libs/drafto.aar ./android/core-go
+          test -s android/app/libs/drafto.aar || { echo "::error::AAR empty"; exit 1; }
+          echo "AAR: $(stat -c%s android/app/libs/drafto.aar) bytes"
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-aar
+          path: android/app/libs/drafto.aar
+          if-no-files-found: error
 
       - uses: gradle/actions/setup-gradle@v4
         continue-on-error: true
         with:
           gradle-version: '8.7'
-      - name: Build APK
+      - name: Build APK (best-effort until G2)
         continue-on-error: true
         run: cd android && gradle assembleDebug --no-daemon
