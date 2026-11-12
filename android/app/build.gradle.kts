@@ -89,12 +89,12 @@ val verifyGoBinding by tasks.registering {
             val hasCore = names.contains("go/drafto/Core.class")
             val hasSeq = names.contains("go/Seq.class")
             logger.lifecycle("verifyGoBinding: ${names.size} entries, go.drafto.Core=$hasCore, go.Seq=$hasSeq")
-            names.filter { it.startsWith("go/") }.forEach { logger.lifecycle("  AAR: $it") }
+            val goEntries = names.filter { it.startsWith("go/") }
+            logger.lifecycle("verifyGoBinding: go/* entries: " + goEntries.joinToString(", "))
             if (!hasCore || !hasSeq) {
                 throw GradleException(
-                    "drafto.aar is present but lacks go/drafto/Core.class or go/Seq.class " +
-                        "(Core=$hasCore, Seq=$hasSeq). The reflection bridge would fall back to " +
-                        "FakeEngine. Rebuild with android/core-go/build-core.sh or remove the stale AAR."
+                    "drafto.aar lacks go/drafto/Core.class (Core=$hasCore, Seq=$hasSeq). " +
+                        "go/* entries: " + goEntries.joinToString(" | ")
                 )
             }
         }
