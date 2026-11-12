@@ -14,13 +14,36 @@ import (
 type Core struct {
 	store   core.Store
 	actions *core.ActionRunner
+	closer  interface{ Close() error }
 }
 
-// New initializes the engine with an in-memory store. Swap for a SQLite
-// store (core.NewSQLiteStore) in production.
+// New initializes the engine with an in-memory store. Use NewAt for
+// persistence; this constructor stays for UI preview and tests.
 func New() *Core {
 	s := core.NewMemoryStore()
 	return &Core{store: s, actions: core.NewActionRunner(s)}
+}
+
+// NewAt initializes the engine with a persistent SQLite store at path
+// (typically the app's private database path). SQLite is pure Go via
+// modernc.org/sqlite, so no CGO is required on Android.
+//
+// The caller must call Close when the engine is torn down.
+func NewAt(path string) (*Core, error) {
+	s, err := core.NewSQLiteStore(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Core{store: s, actions: core.NewActionRunner(s), closer: s}, nil
+}
+
+// Close releases the underlying store if it owns resources (SQLite).
+// It is safe to call on an in-memory engine.
+func (c *Core) Close() error {
+	if c.closer == nil {
+		return nil
+	}
+	return c.closer.Close()
 }
 
 // RegisterAction registers a built-in action so it can be run from Kotlin.

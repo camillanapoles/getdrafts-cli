@@ -16,8 +16,34 @@
    go build ./... && go test ./... && go vet ./...
    ```
 2. ~~**Phase 1:** `core/sqlitestore` + persistência do `cmd/drafto`.~~ ✅ **Concluída** (`core/sqlitestore.go`, pure Go via `modernc.org/sqlite`, sem CGO; CLI `drafto --db`).
-3. **Iniciar Phase 2:** Android — `gomobile bind` + UI Compose (expor sort/purge na UI).
+3. **Phase 2 (Android)** — em andamento. Estado auditado e ordem de execução em **§2.1** abaixo.
 4. **CI:** já configurada — `ci.yml` (build/vet/test/race + android best-effort) e `release.yml` (disparada por tag `v*`/`drafto-v*` em `reverse/main` → goreleaser).
+
+### 2.1 Phase 2 — gap analysis (auditado em 2026-11-12)
+
+Critério de aceitação (`05-ROADMAP.md`): *APK instala; captura → inbox; tag/flag/archive/trash
+funcionam; actions básicas executam.*
+
+O scaffold Compose existe (~478 linhas em `android/`), mas **três gaps impedem o critério**:
+
+| # | Gap | Evidência | Impacto |
+|---|---|---|---|
+| **G1** | Boundary sem persistência | `android/core-go/drafto.go:22` usa `core.NewMemoryStore()` | Dados somem ao fechar o app |
+| **G2** | App não usa o Go core | `EngineFactory.kt:11` retorna `FakeEngine()` | UI roda em mock, não no engine real |
+| **G3** | Sem acesso ao `ActionRunner` na UI | 13 `//export`, nenhum expõe actions | Critério "actions básicas executam" não fecha |
+
+**Ordem de execução (incremental, cada passo verificável no CI):**
+
+1. **G1** — `NewAt(path string)` no boundary usando `core.NewSQLiteStore`, mantendo `New()` para preview.
+   *Verificação:* teste Go do boundary em `android/core-go/` + `go build ./android/core-go/`.
+2. **G1** — Ponte Kotlin para o caminho do banco: `context.getDatabasePath("drafto.db")`.
+3. **G2** — `EngineFactory` escolhe `GoDraftoEngine` quando o AAR existe; `FakeEngine` fica como fallback de preview.
+4. **G2** — `.aar` gerado no CI (artefato) para o app consumir sem `gomobile` local.
+5. **G3** — Expor `RunAction`/`ListActions` no boundary e a ActionSheet na UI.
+
+**Risco conhecido:** `go.mod` declara `go 1.26.0`; o gomobile costuma ficar atrás do
+toolchain. Validar `gomobile bind` **antes** de investir em G2/G3 — se falhar, fixar a
+versão do Go no job do Android (matriz), não no `go.mod`.
 
 ## 3. Comandos úteis
 
@@ -71,9 +97,10 @@ Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitest
 
 ## 6. Checklist de continuidade
 
-- [ ] `go build ./...` verde
-- [ ] `go test ./...` verde
-- [ ] `go vet ./...` limpo
+- [x] `go build ./...` verde
+- [x] `go test ./...` verde
+- [x] `go vet ./...` limpo
+  > Evidência: CI do PR #11 (`77f1996`) — job "Go build, vet, test" pass, 45 testes nomeados + `-race`.
 - [x] CI configurada (`ci.yml`) + release por tag (`release.yml`)
 - [x] `core/sqlitestore` implementado (com FTS5 + purge)
 - [x] `cmd/drafto` Linux funcional com persistência

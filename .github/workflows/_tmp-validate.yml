@@ -1,0 +1,61 @@
+name: TMP validate
+on:
+  push:
+    branches: ["arena/**"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: tidy must be no-op
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum || { echo "::error::go.mod/go.sum not tidy"; exit 1; }
+
+      - name: Apply gofmt and commit if changed
+        run: |
+          gofmt -w $(git ls-files '*.go')
+          if git diff --quiet; then echo "gofmt: clean"; exit 0; fi
+          git --no-pager diff --stat
+          git config user.email "ci@users.noreply.github.com"; git config user.name "CI"
+          git add -A; git commit -m "style: gofmt (CI)"
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}" || echo "push skipped"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Core tests
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 ./core/ 2>&1 | tee /tmp/core.log
+          grep -q "^--- FAIL" /tmp/core.log && { echo "::error::core test failed"; exit 1; }
+          echo "core OK"
+
+      - name: Android boundary tests (Phase 2 / G1)
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./android/core-go/ 2>&1 | tee /tmp/boundary.log
+          fail=0
+          for n in TestNewAtPersistsAcrossInstances TestNewInMemoryAndClose TestNewAtRejectsBadPath; do
+            grep -q "^--- PASS: $n " /tmp/boundary.log && echo "PASS: $n" || { echo "::error::missing $n"; fail=1; }
+          done
+          exit $fail
+
+      - name: Race (core + boundary)
+        run: go test -count=1 -race ./core/ ./android/core-go/
+
+      - name: Whole repo
+        run: go test -count=1 ./...
