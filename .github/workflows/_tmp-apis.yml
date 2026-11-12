@@ -1,0 +1,54 @@
+name: TMP api probe
+on:
+  push:
+    branches: ["arena/**"]
+  workflow_dispatch:
+
+jobs:
+  api:
+    name: dump gomobile API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gobind
+          gomobile init
+      - name: Bind
+        run: |
+          mkdir -p /tmp/out
+          gomobile bind -target=android -androidapi 24 -o /tmp/out/drafto.aar ./android/core-go
+      - name: Dump signatures as annotations
+        shell: bash
+        run: |
+          cd /tmp/out
+          unzip -o -q drafto.aar classes.jar -d x
+          cd x
+          unzip -l classes.jar | awk '{print $4}' | grep -E "\.class$" | sed 's|/|.|g;s|\.class$||' | sort -u > /tmp/classes.txt
+          echo "=== CLASSES ==="
+          head -40 /tmp/classes.txt
+          for c in $(grep -E "^(go\.drafto\.(Core|Draft|Counts|ActionRunResult)|go\.Seq)$" /tmp/classes.txt); do
+            echo "########## $c"
+            javap -classpath classes.jar "$c" 2>&1 | head -60
+          done > /tmp/sig.txt
+          cat /tmp/sig.txt
+          i=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::error title=SIG[$i]::$line"
+            i=$((i+1))
+            [ $i -ge 95 ] && break
+          done < /tmp/sig.txt
