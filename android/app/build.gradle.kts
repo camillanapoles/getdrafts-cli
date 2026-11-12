@@ -50,6 +50,50 @@ android {
     sourceSets["main"].jniLibs.srcDir("libs")
 }
 
+// --- gomobile binding verification -------------------------------------------
+// GoDraftoEngine resolves go.drafto.Core by reflection, so a missing or stale
+// AAR does not break compilation — it only makes the app silently run on
+// FakeEngine. This task fails the build when an AAR is present but does not
+// contain the binding, which is the case that used to go unnoticed.
+val verifyGoBinding by tasks.registering {
+    val aarFile = file("libs/drafto.aar")
+    val outDir = layout.buildDirectory.dir("verifyGoBinding")
+    outputs.upToDateWhen { false }
+    doLast {
+        if (!aarFile.exists()) {
+            logger.lifecycle("verifyGoBinding: libs/drafto.aar absent — app runs on FakeEngine")
+            return@doLast
+        }
+        val work = outDir.get().asFile.apply { mkdirs() }
+        fun copyEntry(zipFile: File, name: String, dest: File): Boolean {
+            java.util.zip.ZipFile(zipFile).use { zip ->
+                val entry = zip.getEntry(name) ?: return false
+                zip.getInputStream(entry).use { input -> dest.outputStream().use { input.copyTo(it) } }
+                return true
+            }
+        }
+        val jar = File(work, "classes.jar")
+        if (!copyEntry(aarFile, "classes.jar", jar)) {
+            throw GradleException("drafto.aar has no classes.jar — the AAR is corrupt")
+        }
+        val names = java.util.zip.ZipFile(jar).use { zip ->
+            zip.entries().asSequence().map { it.name }.toList()
+        }
+        val hasCore = names.contains("go/drafto/Core.class")
+        val hasSeq = names.contains("go/Seq.class")
+        logger.lifecycle("verifyGoBinding: ${names.size} entries, go.drafto.Core=$hasCore, go.Seq=$hasSeq")
+        if (!hasCore || !hasSeq) {
+            throw GradleException(
+                "drafto.aar is present but lacks go/drafto/Core.class or go/Seq.class " +
+                    "(Core=$hasCore, Seq=$hasSeq). The reflection bridge would fall back to " +
+                    "FakeEngine. Rebuild with android/core-go/build-core.sh or remove the stale AAR."
+            )
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(verifyGoBinding) }
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
