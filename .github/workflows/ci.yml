@@ -145,4 +145,15 @@ jobs:
             echo "::error::APK does not embed libgojni.so — Go core missing"; exit 1; }
           echo "$entries" | grep -q '^classes.*\.dex$' || {
             echo "::error::APK has no dex"; exit 1; }
-          echo "OK: APK embeds the gomobile Go core"
+          # GoDraftoEngine resolves go.drafto.Core by reflection, so the class
+          # must be in the dex. Use dexdump if available, else raw string scan.
+          mkdir -p /tmp/apkx && cd /tmp/apkx && rm -rf ./* && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex'
+          if command -v dexdump >/dev/null; then
+            dexdump -f classes*.dex > dex.txt 2>/dev/null || true
+          else
+            echo "(dexdump unavailable — string scan)"
+            strings classes*.dex > dex.txt
+          fi
+          grep -q 'go/drafto/Core' dex.txt || {
+            echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"; exit 1; }
+          echo "OK: APK dex contains go.drafto.Core and libgojni.so"

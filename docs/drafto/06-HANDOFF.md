@@ -29,7 +29,7 @@ O scaffold Compose existe (~478 linhas em `android/`), mas **três gaps impedem 
 | # | Gap | Evidência | Impacto |
 |---|---|---|---|
 | **G1** | Boundary sem persistência | `android/core-go/drafto.go:22` usa `core.NewMemoryStore()` | Dados somem ao fechar o app |
-| **G2** | App não usa o Go core | `EngineFactory.kt:11` retorna `FakeEngine()` | UI roda em mock, não no engine real |
+| **G2** | ~~App não usa o Go core~~ | ✅ resolvido: `EngineFactory` → `GoDraftoEngine` (reflexão sobre o AAR) | UI roda no engine persistente; `FakeEngine` só como fallback logado |
 | **G3** | Sem acesso ao `ActionRunner` na UI | 13 `//export`, nenhum expõe actions | Critério "actions básicas executam" não fecha |
 
 **Ordem de execução (incremental, cada passo verificável no CI):**
@@ -37,8 +37,8 @@ O scaffold Compose existe (~478 linhas em `android/`), mas **três gaps impedem 
 1. **G1** — `NewAt(path string)` no boundary usando `core.NewSQLiteStore`, mantendo `New()` para preview.
    *Verificação:* teste Go do boundary em `android/core-go/` + `go build ./android/core-go/`.
 2. **G1** — Ponte Kotlin para o caminho do banco: `context.getDatabasePath("drafto.db")`.
-3. **G2** — `EngineFactory` escolhe `GoDraftoEngine` quando o AAR existe; `FakeEngine` fica como fallback de preview.
-4. **G2** — `.aar` gerado no CI (artefato) para o app consumir sem `gomobile` local.
+3. ✅ **G2** — `EngineFactory` escolhe `GoDraftoEngine` quando o AAR existe; `FakeEngine` fica como fallback de preview.
+4. ✅ **G2** — `.aar` gerado no CI (artefato) para o app consumir sem `gomobile` local.
 5. **G3** — Expor `RunAction`/`ListActions` no boundary e a ActionSheet na UI.
 
 **Resolvido no ciclo v0.3.0 — `gomobile bind` funciona:**
@@ -108,8 +108,26 @@ Resultado: **APK 15,9 MB e AAR 24,2 MB publicados** como artefatos, com
 > Lição de build: cache do Gradle + `continue-on-error` = dois mecanismos
 > independentes de mascarar falha. Um CI sem gate real não prova nada.
 
-**Próximo (G2):** `EngineFactory` → `GoDraftoEngine` consumindo o AAR, depois a ponte
-Kotlin `context.getDatabasePath("drafto.db")` para o `NewAt(path)`.
+**G2 resolvido — o app usa o core Go de verdade:**
+
+`GoDraftoEngine.kt` deixou de ser um stub comentado. A ponte é feita por
+**reflexão** sobre `go.drafto.Core`:
+
+| Por que reflexão | Consequência |
+|---|---|
+| O AAR não está no repo (gerado pelo CI e por `build-core.sh`) | Build local e runs sem bind continuam compilando |
+| `Class.forName("go.drafto.Core")` em `isAvailable()` | Ativa o engine real **só** quando o binding está no classpath |
+| `InvocationTargetException` desembrulhado | Erro do Go chega à UI com a mensagem original |
+| `go.Seq.setContext(Context)` antes de qualquer chamada | Runtime Go ganha o context Android (exigência do gomobile) |
+
+`EngineFactory.create(context)` devolve `GoDraftoEngine.openAt(context, getDatabasePath("drafto.db"))`
+e cai em `FakeEngine` **com `Log.w` explícito** — a degradação silenciosa era
+justamente o que fazia o app parecer integrado. `DraftoApp` passa o
+`applicationContext` e expõe `isPersistent`.
+
+Gate de CI novo (`Verify APK embeds the Go core`): falha se o APK não tiver
+`lib/arm64-v8a/libgojni.so` nem `go/drafto/Core` no dex — prova que o core
+empacotou, em vez de confiar em "Gradle passou".
 
 ## 3. Comandos úteis
 
@@ -170,4 +188,6 @@ Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitest
 - [x] CI configurada (`ci.yml`) + release por tag (`release.yml`)
 - [x] `core/sqlitestore` implementado (com FTS5 + purge)
 - [x] `cmd/drafto` Linux funcional com persistência
-- [ ] Android APK installa e captura funciona
+- [ ] Android APK instala e captura funciona
+  > G2 fechado: engine persistente ligado no app. Falta validação em device
+  > (sem emulador no sandbox) e o G3 (ActionSheet na UI).
