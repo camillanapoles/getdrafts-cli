@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -57,37 +59,43 @@ android {
 // contain the binding, which is the case that used to go unnoticed.
 val verifyGoBinding by tasks.registering {
     val aarFile = file("libs/drafto.aar")
-    val outDir = layout.buildDirectory.dir("verifyGoBinding")
+    val workDir = layout.buildDirectory.dir("verifyGoBinding")
     outputs.upToDateWhen { false }
     doLast {
         if (!aarFile.exists()) {
             logger.lifecycle("verifyGoBinding: libs/drafto.aar absent — app runs on FakeEngine")
-            return@doLast
-        }
-        val work = outDir.get().asFile.apply { mkdirs() }
-        fun copyEntry(zipFile: File, name: String, dest: File): Boolean {
-            java.util.zip.ZipFile(zipFile).use { zip ->
-                val entry = zip.getEntry(name) ?: return false
-                zip.getInputStream(entry).use { input -> dest.outputStream().use { input.copyTo(it) } }
-                return true
+        } else {
+            val work = workDir.get().asFile
+            work.mkdirs()
+            val jar = File(work, "classes.jar")
+            var copied = false
+            ZipFile(aarFile).use { zip ->
+                val entry = zip.getEntry("classes.jar")
+                if (entry != null) {
+                    zip.getInputStream(entry).use { input ->
+                        jar.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    copied = true
+                }
             }
-        }
-        val jar = File(work, "classes.jar")
-        if (!copyEntry(aarFile, "classes.jar", jar)) {
-            throw GradleException("drafto.aar has no classes.jar — the AAR is corrupt")
-        }
-        val names = java.util.zip.ZipFile(jar).use { zip ->
-            zip.entries().asSequence().map { it.name }.toList()
-        }
-        val hasCore = names.contains("go/drafto/Core.class")
-        val hasSeq = names.contains("go/Seq.class")
-        logger.lifecycle("verifyGoBinding: ${names.size} entries, go.drafto.Core=$hasCore, go.Seq=$hasSeq")
-        if (!hasCore || !hasSeq) {
-            throw GradleException(
-                "drafto.aar is present but lacks go/drafto/Core.class or go/Seq.class " +
-                    "(Core=$hasCore, Seq=$hasSeq). The reflection bridge would fall back to " +
-                    "FakeEngine. Rebuild with android/core-go/build-core.sh or remove the stale AAR."
-            )
+            if (!copied) {
+                throw GradleException("drafto.aar has no classes.jar — the AAR is corrupt")
+            }
+            val names = mutableListOf<String>()
+            ZipFile(jar).use { zip ->
+                val e = zip.entries()
+                while (e.hasMoreElements()) names.add(e.nextElement().name)
+            }
+            val hasCore = names.contains("go/drafto/Core.class")
+            val hasSeq = names.contains("go/Seq.class")
+            logger.lifecycle("verifyGoBinding: ${names.size} entries, go.drafto.Core=$hasCore, go.Seq=$hasSeq")
+            if (!hasCore || !hasSeq) {
+                throw GradleException(
+                    "drafto.aar is present but lacks go/drafto/Core.class or go/Seq.class " +
+                        "(Core=$hasCore, Seq=$hasSeq). The reflection bridge would fall back to " +
+                        "FakeEngine. Rebuild with android/core-go/build-core.sh or remove the stale AAR."
+                )
+            }
         }
     }
 }
