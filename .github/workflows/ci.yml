@@ -132,28 +132,36 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # G2 gate: the APK must actually contain the Go core, otherwise the app
-      # silently runs on FakeEngine. Checks the JNI libs and the generated class.
+      # G2 gate: the APK must actually contain the Go core. GoDraftoEngine
+      # resolves go.drafto.Core by reflection, so a dex without that class would
+      # compile fine and silently run on FakeEngine.
       - name: Verify APK embeds the Go core
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
           echo "APK: $apk ($(stat -c%s "$apk") bytes)"
-          entries=$(unzip -l "$apk" | awk '{print $4}')
-          echo "$entries" | grep -q '^lib/arm64-v8a/libgojni.so$' || {
-            echo "::error::APK does not embed libgojni.so — Go core missing"; exit 1; }
-          echo "$entries" | grep -q '^classes.*\.dex$' || {
-            echo "::error::APK has no dex"; exit 1; }
-          # GoDraftoEngine resolves go.drafto.Core by reflection, so the class
-          # must be in the dex. Use dexdump if available, else raw string scan.
-          mkdir -p /tmp/apkx && cd /tmp/apkx && rm -rf ./* && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex'
-          if command -v dexdump >/dev/null; then
-            dexdump -f classes*.dex > dex.txt 2>/dev/null || true
+          unzip -l "$apk" | awk '{print $4}' | grep -E '^(lib/|classes.*\.dex$)' | sed 's/^/  /'
+
+          fail=0
+          if unzip -l "$apk" | awk '{print $4}' | grep -q '^lib/arm64-v8a/libgojni.so$'; then
+            echo "OK: lib/arm64-v8a/libgojni.so present"
           else
-            echo "(dexdump unavailable — string scan)"
-            strings classes*.dex > dex.txt
+            echo "::error::APK does not embed libgojni.so — Go core missing"; fail=1
           fi
-          grep -q 'go/drafto/Core' dex.txt || {
-            echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"; exit 1; }
-          echo "OK: APK dex contains go.drafto.Core and libgojni.so"
+
+          rm -rf /tmp/apkx && mkdir -p /tmp/apkx && (cd /tmp/apkx && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex')
+          # dexdump -f prints only the header; use a full strings scan, which
+          # sees the type descriptor Lgo/drafto/Core; in the string table.
+          strings /tmp/apkx/classes*.dex > /tmp/apkx/dex.txt
+          echo "dex string dump: $(wc -l < /tmp/apkx/dex.txt) lines, go/drafto hits: $(grep -c 'go/drafto' /tmp/apkx/dex.txt || true)"
+          if grep -q 'go/drafto/Core' /tmp/apkx/dex.txt; then
+            echo "OK: dex contains go/drafto/Core"
+          else
+            echo "::error::go.drafto.Core not in APK dex — reflection would fall back to FakeEngine"
+            echo "--- classes.jar entries of the AAR (top 20) ---"
+            unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar 2>/dev/null \
+              && unzip -l /tmp/apkx/classes.jar | head -25
+            fail=1
+          fi
+          exit $fail
