@@ -13,8 +13,8 @@ import (
 //	{"group":"Quick","steps":[{"type":"copy"},{"type":"archive"}],"after_success":"archive"}
 func ParseAction(name, defJSON string) (core.Action, error) {
 	var def struct {
-		Group        string `json:"group"`
-		Steps        []struct {
+		Group string `json:"group"`
+		Steps []struct {
 			Type   string                 `json:"type"`
 			Config map[string]interface{} `json:"config"`
 		} `json:"steps"`

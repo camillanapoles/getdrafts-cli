@@ -38,7 +38,7 @@ O core define uma interface `Store`. Cada ambiente implementa:
 | Backend | Emprego | Store impl |
 |---------|---------|-----------|
 | **AppleScript** | macOS,控制a o Drafts.app real | `pkg/drafts` (existente) |
-| **SQLite** | Android + Linux (storage nativo) | `core/sqlitestore` (Phase 1) |
+| **SQLite** | Android + Linux (storage nativo) | `core/sqlitestore` (implementado; Phase 1) |
 | **Memory** | testes / demo | `core/memory` (já presente) |
 
 > A CLI macOS continua apontando para o AppleScript backend (compatibilidade com Drafts.app).
