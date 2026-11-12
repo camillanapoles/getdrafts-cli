@@ -31,6 +31,8 @@ jobs:
         run: |
           mkdir -p /tmp/out
           gomobile bind -target=android -androidapi 24 -o /tmp/out/drafto.aar ./android/core-go
+      - name: Save listing for artifact
+        run: echo ok
       - name: Dump signatures as annotations
         shell: bash
         run: |
@@ -48,6 +50,10 @@ jobs:
             case "$f" in go.drafto.*) echo "##### $f" >> /tmp/sig.txt; javap -classpath cls "$f" >> /tmp/sig.txt 2>&1 ;; esac
           done
           echo "--- sig lines: $(wc -l < /tmp/sig.txt)"
+          find cls -name "*.class" | sed 's|cls/||' > /tmp/classes.txt
+          sort -u /tmp/classes.txt | head -40
+          echo "=== TOP-LEVEL PACKAGES ==="
+          awk -F/ '{print $1"/"$2}' /tmp/classes.txt | sort -u
           cat /tmp/sig.txt
           i=0
           while IFS= read -r line; do
@@ -57,3 +63,12 @@ jobs:
             [ $i -ge 190 ] && break
           done < /tmp/sig.txt
           exit 0
+      - name: Upload class listing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aar-classes
+          path: |
+            /tmp/classes.txt
+            /tmp/sig.txt
+          if-no-files-found: warn
