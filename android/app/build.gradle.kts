@@ -42,7 +42,11 @@ android {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
 
-    // gomobile AAR places JNI libs under app/libs (see core-go/build-core.sh).
+    // The gomobile AAR (drafto.aar) carries the Go core as JNI libs.
+    // It is an optional build input: the CI job binds it before Gradle runs,
+    // and android/core-go/build-core.sh produces it locally. When it is
+    // absent the app still compiles (GoDraftoEngine resolves the binding by
+    // reflection at runtime and EngineFactory falls back to FakeEngine).
     sourceSets["main"].jniLibs.srcDir("libs")
 }
 
@@ -62,6 +66,6 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // gomobile binding (generated AAR). Uncomment after running core-go/build-core.sh:
-    // implementation(fileTree("libs") { include("*.aar") })
+    // gomobile binding (generated AAR), consumed only when present.
+    implementation(fileTree("libs") { include("*.aar") })
 }

@@ -131,3 +131,18 @@ jobs:
           name: drafto-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # G2 gate: the APK must actually contain the Go core, otherwise the app
+      # silently runs on FakeEngine. Checks the JNI libs and the generated class.
+      - name: Verify APK embeds the Go core
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $apk ($(stat -c%s "$apk") bytes)"
+          entries=$(unzip -l "$apk" | awk '{print $4}')
+          echo "$entries" | grep -q '^lib/arm64-v8a/libgojni.so$' || {
+            echo "::error::APK does not embed libgojni.so — Go core missing"; exit 1; }
+          echo "$entries" | grep -q '^classes.*\.dex$' || {
+            echo "::error::APK has no dex"; exit 1; }
+          echo "OK: APK embeds the gomobile Go core"
