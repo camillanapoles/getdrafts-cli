@@ -34,16 +34,21 @@ jobs:
       - name: Dump signatures as annotations
         shell: bash
         run: |
+          set -x
           cd /tmp/out
           unzip -o -q drafto.aar classes.jar -d x
+          ls -la x/
           cd x
-          unzip -l classes.jar | awk '{print $4}' | grep -E "\.class$" | grep -v '\$' | sed 's|/|.|g;s|\.class$||' | sort -u > /tmp/classes.txt
-          echo "### classes:"; cat /tmp/classes.txt
+          unzip -o -q classes.jar -d cls
+          find cls -name "*.class" | head -30
+          echo "--- count: $(find cls -name '*.class' | wc -l)"
+          # javap on the extracted dir (no jar needed)
           : > /tmp/sig.txt
-          for c in $(cat /tmp/classes.txt); do
-            case "$c" in go.drafto.*) echo "########## $c" >> /tmp/sig.txt; javap -classpath classes.jar "$c" >> /tmp/sig.txt 2>&1 ;; esac
+          for f in $(find cls -name "*.class" | grep -v '\$' | sed 's|cls/||;s|\.class$||' | tr '/' '.'); do
+            case "$f" in go.drafto.*) echo "##### $f" >> /tmp/sig.txt; javap -classpath cls "$f" >> /tmp/sig.txt 2>&1 ;; esac
           done
-          wc -l /tmp/sig.txt
+          echo "--- sig lines: $(wc -l < /tmp/sig.txt)"
+          cat /tmp/sig.txt
           i=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue
