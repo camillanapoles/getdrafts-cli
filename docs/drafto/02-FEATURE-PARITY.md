@@ -81,7 +81,7 @@
 
 | Get Drafts feature | Drafto | Prioridade | Notas |
 |---|---|---|---|
-| Storage local (SQLite) | ✅ | P0 | `core.SQLiteStore` (modernc.org/sqlite, pure Go, sem CGO); CLI `drafto` persiste em `--db` (`drafto.db` por padrão). |
+| Storage local (SQLite) | ✅ | P0 | `core.SQLiteStore` (modernc.org/sqlite, pure Go, sem CGO); CLI `drafto` persiste em `--db` (`drafto.db` por padrão). **Android desde `v0.3.0`:** `EngineFactory.kt:24,57` abre `getDatabasePath("drafto.db")` e `GoDraftoEngine.kt:206` chama `drafto.Drafto.newAt(path)` (SQLite puro-Go) — dados sobrevivem ao fechar o app; `FakeEngine` só como fallback **explícito e logado** (`EngineFactory.kt:42-45`). Eram os gaps G1/G2. |
 | Backup local | 🟠 | P2 | |
 | Multi-device sync | ⚪ | P4 | Phase 4. |
 | Widgets | ⚪ | P4 | Android widgets. |
