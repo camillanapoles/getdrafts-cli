@@ -28,9 +28,9 @@ O scaffold Compose existe (~478 linhas em `android/`), mas **três gaps impedem 
 
 | # | Gap | Evidência | Impacto |
 |---|---|---|---|
-| **G1** | Boundary sem persistência | `android/core-go/drafto.go:22` usa `core.NewMemoryStore()` | Dados somem ao fechar o app |
+| **G1** | ~~Boundary sem persistência~~ | ✅ resolvido: `NewAt(path)` abre `core.NewSQLiteStore`; `New()` fica para preview | Dados sobrevivem ao fechar o app |
 | **G2** | ~~App não usa o Go core~~ | ✅ resolvido: `EngineFactory` → `GoDraftoEngine` (reflexão sobre o AAR) | UI roda no engine persistente; `FakeEngine` só como fallback logado |
-| **G3** | Sem acesso ao `ActionRunner` na UI | 13 `//export`, nenhum expõe actions | Critério "actions básicas executam" não fecha |
+| **G3** | Falta a ActionSheet na UI | `RunActionJSON`/`RegisterAction` já cruzam o boundary | Só falta a tela; o engine executa actions |
 
 **Ordem de execução (incremental, cada passo verificável no CI):**
 
@@ -39,7 +39,7 @@ O scaffold Compose existe (~478 linhas em `android/`), mas **três gaps impedem 
 2. **G1** — Ponte Kotlin para o caminho do banco: `context.getDatabasePath("drafto.db")`.
 3. ✅ **G2** — `EngineFactory` escolhe `GoDraftoEngine` quando o AAR existe; `FakeEngine` fica como fallback de preview.
 4. ✅ **G2** — `.aar` gerado no CI (artefato) para o app consumir sem `gomobile` local.
-5. **G3** — Expor `RunAction`/`ListActions` no boundary e a ActionSheet na UI.
+5. **G3** — `RunActionJSON`/`RegisterAction` já estão no boundary (feito no G2); falta a ActionSheet na UI.
 
 **Resolvido no ciclo v0.3.0 — `gomobile bind` funciona:**
 
@@ -111,23 +111,65 @@ Resultado: **APK 15,9 MB e AAR 24,2 MB publicados** como artefatos, com
 **G2 resolvido — o app usa o core Go de verdade:**
 
 `GoDraftoEngine.kt` deixou de ser um stub comentado. A ponte é feita por
-**reflexão** sobre `go.drafto.Core`:
+**reflexão** sobre o binding do gomobile:
 
-| Por que reflexão | Consequência |
+| Decisão | Motivo |
 |---|---|
-| O AAR não está no repo (gerado pelo CI e por `build-core.sh`) | Build local e runs sem bind continuam compilando |
-| `Class.forName("go.drafto.Core")` em `isAvailable()` | Ativa o engine real **só** quando o binding está no classpath |
+| Reflexão em vez de `import drafto.Core` | O AAR não está no repo (CI e `build-core.sh` geram); import direto quebraria todo build que não bindasse antes |
+| `Class.forName("drafto.Core")` em `isAvailable()` | Ativa o engine real **só** quando o binding está no classpath |
 | `InvocationTargetException` desembrulhado | Erro do Go chega à UI com a mensagem original |
-| `go.Seq.setContext(Context)` antes de qualquer chamada | Runtime Go ganha o context Android (exigência do gomobile) |
+| `go.Seq.setContext(Context)` antes de qualquer chamada | Runtime Go precisa do context Android (exigência do gomobile) |
+| Travessia em **JSON** | Ver abaixo: é a única forma de passar struct por esse boundary |
 
-`EngineFactory.create(context)` devolve `GoDraftoEngine.openAt(context, getDatabasePath("drafto.db"))`
-e cai em `FakeEngine` **com `Log.w` explícito** — a degradação silenciosa era
-justamente o que fazia o app parecer integrado. `DraftoApp` passa o
-`applicationContext` e expõe `isPersistent`.
+`EngineFactory.create(context)` devolve
+`GoDraftoEngine.openAt(context, getDatabasePath("drafto.db"))` e cai em
+`FakeEngine` **com `Log.w` explícito** — a degradação silenciosa era justamente
+o que fazia o app parecer integrado. `DraftoApp` passa o `applicationContext`
+e expõe `isPersistent`.
 
-Gate de CI novo (`Verify APK embeds the Go core`): falha se o APK não tiver
-`lib/arm64-v8a/libgojni.so` nem `go/drafto/Core` no dex — prova que o core
-empacotou, em vez de confiar em "Gradle passou".
+**O que o `javap` do AAR revelou (e invalidou a primeira tentativa):**
+
+```
+public abstract class drafto.Drafto {          // funções de pacote
+  public static native drafto.Core new_();
+  public static native drafto.Core newAt(java.lang.String) throws Exception;
+}
+public final class drafto.Core {               // a struct exportada
+  public drafto.Core();
+  public native void archiveDraft(String) throws Exception;
+  public native void close() throws Exception;
+  ...
+}
+```
+
+1. **Não existe `go/drafto/`.** O pacote gerado é `drafto`, e `go/` contém só o
+   runtime (`go.Seq`, `go.Universe`). A classe estática chama-se `drafto.Drafto`.
+2. **Nomes viram lowerCamel:** `NewAt` → `newAt`, `New` → `new_` (porque `new`
+   é palavra reservada Java), `Close` → `close`.
+3. **A causa raiz de G2 estar "quase pronto" e não funcionar:** o gomobile
+   **descarta em silêncio** qualquer método exportado cuja assinatura mencione
+   um tipo de outro pacote. Com `(core.Draft, error)` no retorno, sobraram
+   apenas `archiveDraft`, `trashDraft`, `close` e `registerAction` — o app não
+   tinha como criar nem listar draft algum, sem erro nenhum no build.
+
+Por isso o boundary (`android/core-go/drafto.go`) cruza a fronteira como
+`string`: `CreateDraftJSON`, `GetDraftJSON`, `QueryDraftsJSON`, `SetFlaggedJSON`,
+`ReplaceDraftJSON`, `AddTagsJSON`, `RunActionJSON`, `ListTagsJSON`, `CountsJSON`.
+O Kotlin converte com `org.json`; o lado Go devolve `""` para "sem resultado" e
+`errors.Is(err, core.ErrDraftNotFound)` vira `null`, não exceção.
+
+**Gates que impedem a regressão:**
+
+| Gate | Onde | O que pega |
+|---|---|---|
+| `verifyGoBinding` | `preBuild` (`app/build.gradle.kts`) | AAR presente mas sem `drafto/Core`, `drafto/Drafto`, `go/Seq` **ou sem algum dos 13 métodos** (via `javap`) |
+| `Verify APK embeds the Go core` | `ci.yml` | APK sem `libgojni.so` ou sem `drafto/Core`/`drafto/Drafto` no dex |
+| `TestBoundMethodsAreGomobileSafe` | `android/core-go/drafto_test.go` | Método que voltou a expor tipo de outro pacote (some do AAR sem aviso) |
+| `TestNewAtPersistsAcrossInstances` | idem | Regressão de persistência SQLite (G1) |
+
+> Lição: os gates do Gradle/CI precisam falhar com a **mensagem da exceção**,
+> não só com log — os logs completos são bloqueados por egress. Foi um
+> `GradleException` carregando a lista de classes que revelou o pacote real.
 
 ## 3. Comandos úteis
 
@@ -138,8 +180,10 @@ go build ./cmd/drafts
 go test ./core/...
 # Build Linux (CLI nativo, futuro)
 GOOS=linux GOARCH=amd64 go build -o drafto ./cmd/drafto
-# Android AAR (gomobile)
-cd core && gomobile bind -target=android -o=../android/app/libs/drafto.aar .
+# Android AAR (gomobile) — o pacote é ./android/core-go, não ./core
+./android/core-go/build-core.sh
+# ou direto:
+gomobile bind -target=android -androidapi 24 -o android/app/libs/drafto.aar ./android/core-go
 # Android APK
 cd android && ./gradlew assembleDebug
 ```
@@ -188,6 +232,9 @@ Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitest
 - [x] CI configurada (`ci.yml`) + release por tag (`release.yml`)
 - [x] `core/sqlitestore` implementado (com FTS5 + purge)
 - [x] `cmd/drafto` Linux funcional com persistência
-- [ ] Android APK instala e captura funciona
-  > G2 fechado: engine persistente ligado no app. Falta validação em device
-  > (sem emulador no sandbox) e o G3 (ActionSheet na UI).
+- [~] Android APK instala e captura funciona
+  > **G1 e G2 fechados e verificados no CI** (run `43335981699`): o boundary
+  > persiste em SQLite via `NewAt`, o app usa o engine real
+  > (`drafto.Drafto.newAt`), e os gates provam que o APK carrega
+  > `libgojni.so` + `drafto.Core` no dex, com os 13 métodos presentes no AAR.
+  > Pendente: teste em device (não há emulador no sandbox) e G3 (ActionSheet).
