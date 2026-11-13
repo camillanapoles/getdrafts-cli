@@ -54,15 +54,21 @@ Sem evidência, é 🟡. Foi assim que `05-ROADMAP.md` acumulou itens falsamente
 | Testes de integração SQLite | ✅ | `core/sqlitestore_test.go` |
 | Conformidade Memory ↔ SQLite (mesma suíte) | ⚪ | dois conjuntos separados hoje → `SPEC-CORE-01` |
 
-### Phase 2 — App Android → 🟢 **em voo, fora do `reverse/main`** 🔒
+### Phase 2 — App Android → ✅ **G1+G2 integrados e taggeados (`v0.3.0`)** · G3 em diante aberto
+
+> Fechado em **2026-11-13** pelo PR **#38** (squash `3f2c3b9` em `reverse/main`), CI `43337984272`
+> (Go ✅ + Android ✅ com o gate de dex/AAR) e tag **`v0.3.0`** → release
+> https://github.com/camillanapoles/getdrafts-cli/releases/tag/v0.3.0. A tabela abaixo é o registro do
+> *cycle*; as linhas ⚪/🟡 continuam válidas como fila.
 
 | Item | Status | Onde |
 |---|---|---|
-| **G1** boundary com persistência (`NewAt`/`Close` + SQLite) | 🟢 | `reverse/v0.3.0-getdrafts-cli` (PR #13) |
-| `gomobile bind` + AAR como **gate real** de CI | 🟢 | idem; causa raiz: `x/mobile` fora do grafo de módulo |
-| APK compila (plugin Compose do Kotlin 2.0) + artefatos | 🟢 | idem |
-| **G2** app usando o core Go de verdade (reflexão, `go.Seq.setContext`, fallback logado) | 🟢 | só `arena/26d3ae79-*` — **sem PR aberto** ⚠️ |
-| Gate "APK embute `libgojni.so` + `go/drafto/Core` no dex" | 🟢 | idem |
+| **G1** boundary com persistência (`NewAt`/`Close` + SQLite) | ✅ | `reverse/main` `3f2c3b9` (`android/core-go/drafto.go:46` `NewAt`, `:56` `Close`) |
+| `gomobile bind` + AAR como **gate real** de CI | ✅ | `ci.yml` (NDK `nttld/setup-ndk@v1` + artefato `drafto-aar`); causa raiz era `x/mobile` fora do grafo de módulo |
+| APK compila (plugin Compose do Kotlin 2.0) + artefatos | ✅ | artefatos `drafto-aar` / `drafto-debug-apk` no run; **ainda não na release** → `SPEC-OPS-06` (#42) |
+| **G2** app usando o core Go de verdade (reflexão, `go.Seq.setContext`, fallback logado) | ✅ | `GoDraftoEngine.kt` + `EngineFactory.kt` no mesmo squash; `FakeEngine` virou fallback logado |
+| Gate "APK embute `libgojni.so` + `go/drafto/Core` no dex" | ✅ | `verifyGoBinding` no job Android (regra: gate com `unzip -l` + strings do dex) |
+| Boundary à prova de gomobile (DTO flat, sem struct/mapi expostos) | ✅ parcial | feito dentro do #38 (API JSON) — **mas** o `SPEC-AND-01` (#20) ainda deve pinar o *shape de wire* e o `tagsJSON` inválido; ver comentário em #40 |
 | **G3** actions na UI (`RunAction`/`ListActions` no boundary + ActionSheet) | ⚪ | → `SPEC-AND-02` |
 | Lista com pastas/sort/tags/purge (hoje hardcoded `"inbox"`) | ⚪ | → `SPEC-AND-03` |
 | `ACTION_SEND` + deep links tratados (manifest declara, código ignora) | ⚪ | → `SPEC-AND-04` |
@@ -96,7 +102,7 @@ paridade de layout — **em `arena/d07fc20f-*`, nunca integrada**. → `SPEC-REV
 | Marco | Conteúdo | Gate de saída | Destrava |
 |---|---|---|---|
 | **M0 — v0.2.0** | paridade P0 no core | 🟰 alcançado (tag `v0.2.0`, release "Latest") | — |
-| **M1 — v0.3.0** | G1 + G2 + gates de CI Android | PR `arena/26d3ae79` → `reverse/v0.3.0` → `reverse/main`; CI Go **e** Android verdes; tag `v0.3.0` | `SPEC-AND-01..05`, `SPEC-CLI-01` (boundary estável) |
+| **M1 — v0.3.0** ✅ 2026-11-13 | G1 + G2 + gates de CI Android (`#38`→`3f2c3b9`, tag `v0.3.0`) | PR `arena/26d3ae79` → `reverse/v0.3.0` → `reverse/main`; CI Go **e** Android verdes; tag `v0.3.0` | `SPEC-AND-01..05`, `SPEC-CLI-01` (boundary estável) |
 | **M2 — Phase 2 fechado** | G3 + UI completa + aceite em device | critério `05-ROADMAP.md` §Phase 2: APK instala; captura → inbox; tag/flag/archive/trash; **actions executam** | `SPEC-PROD-01` |
 | **M3 — v0.4.0** | CLI paridade + export/import + actions persistentes | conformance kit verde nos 2 backends; round-trip export/import; release com binários linux+darwin | `SPEC-PROD-02/03` |
 | **M4 — v0.5.0** | paridade de layout (rev-ios) + x-callback | overlay dos screenshots × tokens medidos dentro da tolerância | Phase 4 |
@@ -242,7 +248,10 @@ paridade de layout — **em `arena/d07fc20f-*`, nunca integrada**. → `SPEC-REV
 ### 5.2 Agenda recomendada (1 sessão = 1 spec)
 
 ```
-Semana 1 ── 🔒 OPS-01 (fechar v0.3.0, tag)  ◄─ ÚNICA coisa que pode tocar reverse/main
+Semana 0 ── ✅ OPS-01 FECHADO 2026-11-13: #38→3f2c3b9, tag v0.3.0, release goreleaser
+         (sobram #42 assets na release e #43 protection de reverse/main — ambos lane Q)
+
+Semana 1 ── CORE-01 + AND-01 liberados (M2)
          ∥  OPS-02 (docs/LICENSE/ADRs)          ← safe: roda hoje, neste sandbox
          ∥  OPS-03 (make + ci-diag)              ← safe
          ∥  REVIOS-001 C0/C1 (trilha isolada)    ← safe
@@ -395,4 +404,4 @@ mudar o nome do branch da sessão.
 | Backends sob a mesma suíte de conformidade | 0/2 | 0/2 | **2/2** |
 | Score agent-DX (`drafto`) | n/a (audit era do `drafts`: 11/21) | n/a | **≥17/21** |
 | Features ✅ na matriz sem código correspondente | 5 (D1,D2,D3,D5,D9) | 0 | 0 |
-| Releases | v0.2.0 | **v0.3.0** | v0.4.0 |
+| Releases | **v0.3.0** (2026-11-13) | v0.3.0 | v0.4.0 |

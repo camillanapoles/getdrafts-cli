@@ -59,10 +59,17 @@ CREATE TABLE action_logs (id INTEGER PRIMARY KEY, uuid TEXT, action TEXT, ok INT
 
 ## Phase 2 — App Android
 **Objetivo:** UI Compose, captura, lista, editor, actions básicas.
-**Critério de início:** `SPEC-OPS-01` (G1/G2 integrados em `reverse/main` + tag `v0.3.0`) e `SPEC-AND-01`
-(boundary com DTO flat) — ver `07-ROADMAP-EXECUCAO.md` §4.4/§6.
+**Critério de início:** ~~`SPEC-OPS-01` (G1/G2 integrados em `reverse/main` + tag `v0.3.0`)~~ ✅ **fechado
+em 2026-11-13** (`#38` → squash `3f2c3b9`, tag `v0.3.0`); resta `SPEC-AND-01` (DTO do boundary à prova
+de gomobile) — ver `07-ROADMAP-EXECUCAO.md` §4.4/§6.
 
-- [ ] 🟢 `DraftoCore` (gomobile binding do Store/ActionRunner) — **G1 `NewAt`/`Close` + G2 `GoDraftoEngine` por reflexão** existem só em `reverse/v0.3.0-getdrafts-cli` (PR #13) e `arena/26d3ae79-*`; nada disso está em `reverse/main` ainda
+- [x] ✅ `DraftoCore` (gomobile binding do Store/ActionRunner) — G1 `NewAt`/`Close` + SQLite no boundary
+  e G2 `GoDraftoEngine` (reflexão) + `EngineFactory` **integrados em `reverse/main`** pelo PR **#38**
+  (squash `3f2c3b9`); *gate* de dex/AAR (`verifyGoBinding`) no CI; testes do boundary na API JSON
+  (`23988b2`, inclui `TestBoundMethodsAreGomobileSafe` por reflexão). Evidência: run `43337984272`
+  (Go ✅ / Android ✅). Release: [`v0.3.0`](https://github.com/camillanapoles/getdrafts-cli/releases/tag/v0.3.0)
+- [ ] 🟡 assets Android **na release** — `drafto.aar` e `drafto-debug.apk` só existem como artefatos de
+  CI (run `43337984272`); `release.yml` não os anexa → [#42](https://github.com/camillanapoles/getdrafts-cli/issues/42)
 - [ ] `DraftListScreen` (inbox/archive/trash/flagged/all, search, sort) — hoje fixo em `"inbox"` (`android/…/ui/DraftListViewModel.kt:29`) → `SPEC-AND-03`
 - [ ] 🟡 `EditorScreen` (capture ✅, save ✅, flag ✅, archive/trash ✅, **tag ✗**) — `ui/EditorScreen.kt` não expõe tags nem `addTags` → incluir em `SPEC-AND-03`
 - [ ] `ActionSheet` (copy/share/move/tag/archive/trash/template) — não existe → `SPEC-AND-02` (G3)
@@ -94,7 +101,10 @@ modelo de versões corrompe dados. Widgets/Wear só depois do aceite de `SPEC-AN
   > ✅ evidência: CI do `77f1996` — "Go build, vet, test" pass (45 testes nomeados + `-race`).
   > 🟡 a **superfície** da CLI (plain/info/append/prepend/replace/workspace/actions) não fecha: ver Phase 1 acima.
 - Phase 2: APK installa; captura → inbox; tag/flag/archive/trash funcionam; actions básicas executam.
-  > Em voo (G1/G2 em `reverse/v0.3.0-*`; G3 não iniciado). Aceite em device pendente → `SPEC-AND-05`.
+  > ✅ **G1+G2 integrados e taggeados** — `reverse/main` `3f2c3b9` (PR #38), CI `43337984272` (Go ✅,
+  > Android ✅ com `verifyGoBinding` provando `libgojni.so` + `go/drafto/Core` no dex), release `v0.3.0`.
+  > ⚠️ O critério **não** fecha aqui: G3 (ActionSheet → `SPEC-AND-02`) e aceite em device
+  > (`SPEC-AND-05`) seguem pendentes — o APK é *buildado* no CI, nunca *instalado*.
 - Phase 3: URL scheme responde; export/import round-trip.
 - Phase 4: sync entre dois devices.
 

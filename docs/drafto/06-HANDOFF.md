@@ -7,7 +7,16 @@
 - **Progresso nesta sessão:** gap **P0 de paridade fechado no core** — `[[clipboard]]`/`[[workspace]]` (`RenderTemplateEnv` + `ClipboardReader`), search full-text (conteúdo/título/tags), sort completo (`AccessedAt` + `SortName`, CLI `--sort/--desc`), trash auto-delete 30 dias (`TrashedAt`, `TrashPruner.PurgeTrash`, CLI `purge`) e `ActionRunner.RegisterAll` (grupos em lote). Automação por tag implementada (`release.yml`) + template de PR perpetuando o fluxo `reverse/`.
 - **Base:** CLI Go (macOS/AppleScript) já existente e estável (commit `8b43a14`).
 - **Novo:** pacote `core/` (Go, platform-agnostic) — o engine compartilhado.
-- **Documentação:** `docs/drafto/00..06` + `CODEMAP.md`.
+- **Documentação:** `docs/drafto/00..09` + `docs/drafto/specs/` + `CODEMAP.md`.
+- **Release publicada:** [`v0.3.0`](https://github.com/camillanapoles/getdrafts-cli/releases/tag/v0.3.0)
+  — tag anotada em `reverse/main` @ `3f2c3b9` (gate **SPEC-OPS-01** fechado: G1+G2+gates de CI Android).
+  Assets: `drafts` darwin amd64/arm64, `drafto` linux amd64/arm64, `checksums.txt` (goreleaser,
+  run `43338726003` — Go gate ✅ + release ✅).
+  ⚠️ `drafto.aar` / `drafto-debug.apk` **não** estão na release: só `release.yml` sabe anexá-los e ele
+  ainda não tem esse job → `SPEC-OPS-06` (#42). Enquanto isso os binários Android vivem como
+  **artefatos do run** `43337984272` (expiram em 90 dias — por isso o #42 é P2 *com prazo real*).
+- **Regra de proteção que ainda não existe:** `reverse/main` aceita push direto sem CI (foi assim que
+  a janela `21:35Z→22:50Z` de 2026-11-12 ficou vermelha) → `SPEC-OPS-07` (#43).
 
 ## 2. Como continuar (próximos passos óbvios)
 
