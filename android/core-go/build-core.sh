@@ -22,8 +22,10 @@ if ! command -v gomobile >/dev/null 2>&1; then
 fi
 
 echo "Binding android/core-go -> android/app/libs/drafto.aar"
-gomobile bind -target=android -o=android/app/libs/drafto.aar ./android/core-go
+gomobile bind -target=android -androidapi 24 -o=android/app/libs/drafto.aar ./android/core-go
 
-echo "Done: android/app/libs/drafto.aar"
-echo "Uncomment the AAR dependency in app/build.gradle.kts and switch"
-echo "EngineFactory to GoDraftoEngine to use the native engine."
+echo "Done: android/app/libs/drafto.aar ($(stat -c%s android/app/libs/drafto.aar 2>/dev/null || stat -f%z android/app/libs/drafto.aar) bytes)"
+# The AAR is picked up automatically: app/build.gradle.kts consumes libs/*.aar
+# and verifyGoBinding fails the build if the binding is incomplete. EngineFactory
+# selects GoDraftoEngine as soon as drafto.Core is on the classpath.
+echo "Next: cd android && ./gradlew assembleDebug"
