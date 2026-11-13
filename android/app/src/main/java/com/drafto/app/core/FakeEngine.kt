@@ -1,6 +1,5 @@
 package com.drafto.app.core
 
-import kotlin.concurrent.synchronized
 import kotlin.random.Random
 
 /**
@@ -26,6 +25,8 @@ class FakeEngine : DraftoEngine {
                 title = titleOf(content),
                 tags = tags.toList(),
                 isFlagged = flagged,
+                isArchived = false,
+                isTrashed = false,
                 folder = "inbox",
                 createdAt = now,
                 modifiedAt = now,
@@ -59,12 +60,16 @@ class FakeEngine : DraftoEngine {
         mutate(uuid) { copy(isFlagged = flagged) }
     }
 
-    override fun archiveDraft(uuid: String) = synchronized(lock) {
-        mutate(uuid) { copy(folder = "archive", isArchived = true, isTrashed = false) }
+    override fun archiveDraft(uuid: String) {
+        synchronized(lock) {
+            mutate(uuid) { copy(folder = "archive", isArchived = true, isTrashed = false) }
+        }
     }
 
-    override fun trashDraft(uuid: String) = synchronized(lock) {
-        mutate(uuid) { copy(folder = "trash", isTrashed = true, isArchived = false) }
+    override fun trashDraft(uuid: String) {
+        synchronized(lock) {
+            mutate(uuid) { copy(folder = "trash", isTrashed = true, isArchived = false) }
+        }
     }
 
     override fun replaceDraft(uuid: String, content: String): Draft = synchronized(lock) {
@@ -112,8 +117,8 @@ class FakeEngine : DraftoEngine {
         if (name == "Archive") Unit
     }
 
-    private inline fun mutate(uuid: String, block: Draft.() -> Draft): Draft = synchronized(lock) {
-        val cur = drafts[uuid] ?: return@synchronized Draft(
+    private fun mutate(uuid: String, block: Draft.() -> Draft): Draft = synchronized(lock) {
+        val cur = drafts[uuid] ?: return Draft(
             "", "", "", emptyList(), false, false, false, "inbox", "", "", ""
         )
         val next = cur.block()

@@ -60,13 +60,13 @@ jobs:
       - name: Race (core)
         run: go test -race ./core/...
 
-  # Best-effort: the Android toolchain (SDK + NDK + gomobile) is not needed
-  # to ship the Go core. Every step is continue-on-error so a missing
-  # toolchain surfaces in the log without blocking merges.
+  # Android: gomobile bind do core Go -> AAR -> APK.
+  # Todo o pipeline é gate real (sem continue-on-error): bind, AAR e APK.
+  # A UI ainda usa FakeEngine (G2 em 06-HANDOFF §2.1), mas o app compila e
+  # empacota — o APK é publicado como artefato a cada run.
   android:
-    name: Android build (best-effort)
+    name: Android build (gomobile + APK)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -78,13 +78,103 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Compile gomobile boundary (plain Go)
+      - name: Compile boundary (plain Go)
         run: go build ./android/core-go/
 
+      - name: Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gobind
+          gomobile init
+
+      - name: Bind Go core to AAR
+        run: |
+          mkdir -p android/app/libs
+          gomobile bind -target=android -androidapi 24 -o android/app/libs/drafto.aar ./android/core-go
+          test -s android/app/libs/drafto.aar || { echo "::error::AAR empty"; exit 1; }
+          echo "AAR: $(stat -c%s android/app/libs/drafto.aar) bytes"
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-aar
+          path: android/app/libs/drafto.aar
+          if-no-files-found: error
+
       - uses: gradle/actions/setup-gradle@v4
-        continue-on-error: true
         with:
           gradle-version: '8.7'
+          cache-disabled: true
       - name: Build APK
-        continue-on-error: true
-        run: cd android && gradle assembleDebug --no-daemon
+        shell: bash
+        run: |
+          set +e
+          # --rerun-tasks: o cache do Gradle mascarou erros de compilação
+          # Kotlin por vários ciclos (tarefas "up-to-date" com código quebrado).
+          out=$( cd android && gradle assembleDebug --no-daemon --no-build-cache --rerun-tasks 2>&1 )
+          rc=$?
+          echo "$out" | tail -60
+          if [ $rc -ne 0 ]; then
+            echo "$out" | grep -E "^e: |error:|FAILURE|What went wrong|> " | tail -20 | while IFS= read -r l; do
+              [ -n "$l" ] && echo "::error title=gradle::$l"
+            done
+            exit 1
+          fi
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: drafto-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # G2 gate: the APK must actually contain the Go core. GoDraftoEngine
+      # resolves go.drafto.Core by reflection, so a dex without that class would
+      # compile fine and silently run on FakeEngine.
+      #
+      # NOTE: no `set -e`/`pipefail` here and no `grep -q` downstream of a
+      # pipeline — grep -q exits early, the producer takes SIGPIPE and pipefail
+      # turns a *successful* match into a failure. Variables, not pipelines.
+      - name: Verify APK embeds the Go core
+        shell: bash
+        run: |
+          set -u
+          fail=0
+
+          apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $apk ($(stat -c%s "$apk") bytes)"
+
+          entries=$(unzip -l "$apk" | awk '{print $4}')
+          echo "--- libs and dex in APK ---"
+          echo "$entries" | grep -E '^(lib/|classes.*\.dex$)' | sed 's/^/  /'
+
+          case "$entries" in
+            *"lib/arm64-v8a/libgojni.so"*) echo "OK: libgojni.so present" ;;
+            *) echo "::error::APK does not embed libgojni.so — Go core missing"; fail=1 ;;
+          esac
+
+          rm -rf /tmp/apkx; mkdir -p /tmp/apkx
+          ( cd /tmp/apkx && unzip -oq "$GITHUB_WORKSPACE/$apk" 'classes*.dex' )
+          # A string scan sees the type descriptor Ldrafto/Core; in the dex
+          # string table (dexdump -f prints only the header, which is what
+          # produced an earlier false negative).
+          strings /tmp/apkx/classes*.dex > /tmp/apkx/dex.txt
+          core_hits=$(grep -c 'drafto/Core' /tmp/apkx/dex.txt)
+          pkg_hits=$(grep -c 'drafto/Drafto' /tmp/apkx/dex.txt)
+          echo "dex strings: $(wc -l < /tmp/apkx/dex.txt) lines, drafto/Core=$core_hits drafto/Drafto=$pkg_hits"
+
+          if [ "$core_hits" -eq 0 ] || [ "$pkg_hits" -eq 0 ]; then
+            echo "::error::drafto.Core/Drafto not in APK dex — reflection would fall back to FakeEngine"
+            echo "--- classes.jar entries (top 25) ---"
+            unzip -p android/app/libs/drafto.aar classes.jar > /tmp/apkx/classes.jar
+            unzip -l /tmp/apkx/classes.jar | head -25
+            fail=1
+          else
+            echo "OK: dex contains drafto.Core and drafto.Drafto"
+          fi
+
+          exit $fail

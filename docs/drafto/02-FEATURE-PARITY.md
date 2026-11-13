@@ -7,7 +7,7 @@
 
 | Get Drafts feature | Drafto (Android) | Drafto (Linux) | Prioridade | Notas |
 |---|---|---|---|---|
-| Quick capture (inbox) | ✅ | ✅ | P0 | Fluxo central. |
+| Quick capture (inbox) | 🟡 | ✅ | P0 | Android: engine real (SQLite via gomobile) ligado no app; falta validar em device. |
 | Editor plain-text | ✅ | ✅ | P0 | Compose Editor / terminal editor. |
 | Markdown rendering preview | 🟡 | 🟡 | P1 | Android: Compose markdown; Linux: mdcat. |
 | Taskpaper tasks (`- [ ]`) | 🟠 | 🟠 | P2 | Task listtoggle. |
