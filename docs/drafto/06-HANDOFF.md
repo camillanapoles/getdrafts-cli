@@ -2,9 +2,15 @@
 
 ## 1. Onde o projeto está (esta sessão)
 
-- **Repositório:** `getdrafts-cli` (monorepo Drafto). Branch de sessão: `arena/b30c3d85-getdrafts-cli`.
+- **Repositório:** `getdrafts-cli` (monorepo Drafto). Branch de sessão: `arena/d742d17f-getdrafts-cli`.
+- **Progresso nesta sessão (d742d17f):** `SPEC-CORE-01` fechada — pacote `core/storetest` com a tabela
+  única de conformidade do `Store` (44 casos + 9 `Divergence/*`), runners `Test{Memory,SQLite}StoreConformance`,
+  relógio fixado para asserts de timestamp exatos; descobriu 5 divergências Memory-only → `SPEC-CORE-06` (#46).
+  PRs: #45 (arena → `reverse/d742d17f-getdrafts-cli`) → PR de integração → `reverse/main` (Closes #19).
+  Contexto herdado: fix `accessed_at` do SQLiteStore (`f3e198d`) já está em `reverse/main` via #10/#11,
+  tag `v0.3.0` publicada — a CI que falhava em `TestSQLiteCreateAndGet` está verde desde então.
 - **Trilha canônica (ADR-005):** namespace `reverse/`. `reverse/main` = staging/production (o "origin"). Fluxo: `arena/<id>` → PR → `reverse/<id>` → PR/merge → `reverse/main` → tag `vX.Y.Z` (dispara `release.yml`). Tags são gatilho de automação.
-- **Progresso nesta sessão:** gap **P0 de paridade fechado no core** — `[[clipboard]]`/`[[workspace]]` (`RenderTemplateEnv` + `ClipboardReader`), search full-text (conteúdo/título/tags), sort completo (`AccessedAt` + `SortName`, CLI `--sort/--desc`), trash auto-delete 30 dias (`TrashedAt`, `TrashPruner.PurgeTrash`, CLI `purge`) e `ActionRunner.RegisterAll` (grupos em lote). Automação por tag implementada (`release.yml`) + template de PR perpetuando o fluxo `reverse/`.
+- **Progresso das sessões anteriores (até `b30c3d85`/`3fc75677`/`26d3ae79`):** gap **P0 de paridade fechado no core** — `[[clipboard]]`/`[[workspace]]` (`RenderTemplateEnv` + `ClipboardReader`), search full-text (conteúdo/título/tags), sort completo (`AccessedAt` + `SortName`, CLI `--sort/--desc`), trash auto-delete 30 dias (`TrashedAt`, `TrashPruner.PurgeTrash`, CLI `purge`) e `ActionRunner.RegisterAll` (grupos em lote). Automação por tag implementada (`release.yml`) + template de PR perpetuando o fluxo `reverse/`.
 - **Base:** CLI Go (macOS/AppleScript) já existente e estável (commit `8b43a14`).
 - **Novo:** pacote `core/` (Go, platform-agnostic) — o engine compartilhado.
 - **Documentação:** `docs/drafto/00..09` + `docs/drafto/specs/` + `CODEMAP.md`.
@@ -200,7 +206,10 @@ cd android && ./gradlew assembleDebug
 ## 3.1 Estado do backend SQLite (Phase 1 — corrigido na revisão do PR #11)
 
 `core.SQLiteStore` é o backend de produção para Linux/Android (pure Go, sem CGO).
-Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitestore_test.go`):
+Paridade com `MemoryStore` verificada pela **suíte de conformidade compartilhada**
+`core/storetest` (`Test{Memory,SQLite}StoreConformance`, PR #45 — mesma tabela nos dois
+backends; divergências viraram casos `Divergence/*` com skip documentado → `SPEC-CORE-06`
+#46) e pelos testes de integração (`core/sqlitestore_test.go`):
 
 | Área | Comportamento |
 |---|---|
@@ -240,6 +249,10 @@ Paridade com `MemoryStore` verificada por testes de integração (`core/sqlitest
   > Evidência: CI do PR #11 (`77f1996`) — job "Go build, vet, test" pass, 45 testes nomeados + `-race`.
 - [x] CI configurada (`ci.yml`) + release por tag (`release.yml`)
 - [x] `core/sqlitestore` implementado (com FTS5 + purge)
+- [x] Conformidade Memory ↔ SQLite por suíte única (`core/storetest`)
+  > Evidência: PR #45 (run `43716582824`) — `Test{Memory,SQLite}StoreConformance`, 44 casos +
+  > 9 skips `Divergence/*`, `-race` verde em `7204294`. As 5 divergências reais encontradas pela
+  > suíte têm spec própria: `SPEC-CORE-06` (#46).
 - [x] `cmd/drafto` Linux funcional com persistência
 - [~] Android APK instala e captura funciona
   > **G1 e G2 fechados e verificados no CI** (run `43335981699`): o boundary
