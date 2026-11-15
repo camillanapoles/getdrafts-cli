@@ -36,11 +36,12 @@ Esqueleto: [`_TEMPLATE.md`](_TEMPLATE.md). Campos mínimos:
 | `SPEC-OPS-01` | Fechar ciclo v0.3.0 (G1+G2+gates) → tag | Q | `ready-for-execution` 🔒 | CI do `arena/26d3ae79` verde |
 | `SPEC-OPS-02` | Higiene de docs, `LICENSE`, ADRs | Q | `ready-for-execution` | — |
 | `SPEC-OPS-03` | `Makefile` + diagnóstico de CI por anotações | Q | `draft` | — |
-| `SPEC-CORE-01` | Suíte de conformidade Memory ↔ SQLite (`core/storetest`) | C | `draft` | — |
-| `SPEC-CORE-02` | `WorkspaceStore` (contrato simétrico de workspaces) | C | `blocked` | CORE-01 |
-| `SPEC-CORE-03` | Actions & `action_logs` & `versions` persistentes | C | `blocked` | CORE-01, ADR-009 |
+| `SPEC-CORE-01` | Suíte de conformidade Memory ↔ SQLite (`core/storetest`) | C | `done` ✅ (PR #45; 44 casos + 9 skips `Divergence/*`) | — |
+| `SPEC-CORE-02` | `WorkspaceStore` (contrato simétrico de workspaces) | C | `ready-for-execution` (CORE-01 mesclada a libera) | — |
+| `SPEC-CORE-03` | Actions & `action_logs` & `versions` persistentes | C | `blocked` | ADR-009 |
 | `SPEC-CORE-04` | Rigor de steps, `RunOnText` transiente, sort estável | C | `blocked` | CORE-03 |
 | `SPEC-CORE-05` | FTS5 ranqueado | C | `deferred` | — |
+| `SPEC-CORE-06` | Alinhar 5 divergências Memory↔SQLite achadas pela suíte (skips → asserts) | C | `ready-for-execution` [#46] | — |
 | `SPEC-CLI-01` | Paridade de superfície `drafto` ↔ `Store` | L | `blocked` | CORE-02 (workspaces) |
 | `SPEC-CLI-02` | DX de agente (`--dry-run`, mask, NDJSON, score ≥17/21) | L | `blocked` | CLI-01 |
 | `SPEC-AND-01` | Boundary gomobile v2 (DTO flat JSON) | A | `blocked` | OPS-01 |

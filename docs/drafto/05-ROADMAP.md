@@ -26,7 +26,13 @@
 - [x] CRUD: create/get/query/update/replace/append/prepend — **no `core.Store`** (`core/store.go:21-60`)
 - [ ] 🟡 Organização — **workspaces parcial**: inbox/archive/trash/flag/tags/sort/search ✅ · `SaveWorkspace` fora da interface e com assinaturas divergentes (`core/memory.go:402` vs `core/sqlitestore.go:650`) → `SPEC-CORE-02`
 - [ ] 🟡 `cmd/drafto` Linux — JSON ✅, `schema` hardcoded 🟡, **sem `--plain`**, **sem `info`**, sem `replace/append/prepend/edit/workspace/actions` → `SPEC-CLI-01`
-- [x] Testes de integração (SQLite) — suíte própria; **conformidade Memory ↔ SQLite ainda não existe** → `SPEC-CORE-01`
+- [x] Testes de integração (SQLite) — suíte própria
+- [x] Conformidade Memory ↔ SQLite — `core/storetest` roda **a mesma tabela** nos dois backends: 44 casos nomeados
+  (CRUD, sentinela `ErrDraftNotFound` em 11 operações, trash+`TrashedAt`+auto-purge 30d, `PurgeTrash`, flags,
+  tags replace/union/índice, search conteúdo+título+tags case-insensitive, sort created/modified/accessed/name
+  +desc+flagged-top, limit 0/negativo, Counts, workspaces read, `Get`/`Update` stamps com relógio fixado) +
+  9 skips `Divergence/*` documentados (5 → `SPEC-CORE-06` [#46], e `SPEC-CORE-02`/`04`/`05`, `SPEC-AND-01`).
+  > ✅ evidência: `Test{Memory,SQLite}StoreConformance` — PR #45, run `43716582824` (Go + `-race` + Android verdes em `7204294`)
 - [ ] Schema real do SQLite = `drafts`, `tags`, `workspaces`, `settings` (`core/sqlitestore.go:92-158`). As tabelas `actions`, `action_logs` e `versions` abaixo são **propostas, não implementadas** → `SPEC-CORE-03`
 
 ### Schema SQLite (proposto)

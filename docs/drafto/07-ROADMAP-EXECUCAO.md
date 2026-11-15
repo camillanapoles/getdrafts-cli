@@ -52,7 +52,7 @@ Sem evidência, é 🟡. Foi assim que `05-ROADMAP.md` acumulou itens falsamente
 | Persistência de actions + `action_logs` + `versions` | ⚪ | tabelas nunca criadas (D4) → `SPEC-CORE-03` |
 | `cmd/drafto`: JSON + **plain** + schema + **info** | 🟡 | `plain`/`info` **não existem**; `schema` é hardcoded (D1/D2) → `SPEC-CLI-01` |
 | Testes de integração SQLite | ✅ | `core/sqlitestore_test.go` |
-| Conformidade Memory ↔ SQLite (mesma suíte) | ⚪ | dois conjuntos separados hoje → `SPEC-CORE-01` |
+| Conformidade Memory ↔ SQLite (mesma suíte) | ✅ | `core/storetest` — `Test{Memory,SQLite}StoreConformance` (44 casos + 9 `Divergence/*` documentados); evidência PR #45 run `43716582824`. Divergências viraram `SPEC-CORE-06` (#46) |
 
 ### Phase 2 — App Android → ✅ **G1+G2 integrados e taggeados (`v0.3.0`)** · G3 em diante aberto
 
